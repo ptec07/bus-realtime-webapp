@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>실시간 버스정보</title>
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  >
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 0; background: #f6f7fb; color: #111827; }
+    main { max-width: 1100px; margin: 0 auto; padding: 24px; }
+    h1 { margin-bottom: 8px; }
+    .grid { display: grid; grid-template-columns: 320px 1fr; gap: 20px; }
+    .card { background: white; border-radius: 16px; padding: 16px; box-shadow: 0 4px 20px rgba(0,0,0,.06); }
+    input, button { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid #d1d5db; box-sizing: border-box; }
+    button { background: #2563eb; color: white; font-weight: 600; cursor: pointer; margin-top: 8px; }
+    ul { list-style: none; padding: 0; margin: 12px 0 0; }
+    li { padding: 10px; border: 1px solid #e5e7eb; border-radius: 10px; margin-bottom: 8px; cursor: pointer; }
+    li:hover { background: #eff6ff; }
+    .muted { color: #6b7280; font-size: 14px; }
+    .badge { display: inline-block; padding: 4px 8px; background: #dbeafe; color: #1d4ed8; border-radius: 999px; font-size: 12px; }
+    .arrival { white-space: pre-line; line-height: 1.6; }
+    .live-bus-status { margin-top: 10px; font-size: 14px; color: #1f2937; }
+    #map { width: 100%; height: 420px; border-radius: 14px; margin-top: 12px; background: #e5e7eb; }
+    .map-caption { margin-top: 8px; }
+    @media (max-width: 800px) { .grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+<main>
+  <h1>실시간 버스정보 웹앱</h1>
+  <p class="muted">노선번호 검색 → 정류장 선택 → 실시간 도착정보 확인</p>
+  <div class="grid">
+    <section class="card">
+      <label for="route-query">노선번호</label>
+      <input id="route-query" placeholder="예: 1001" value="1001">
+      <button id="route-search">노선 검색</button>
+      <ul id="route-results"></ul>
+    </section>
+
+    <section class="card">
+      <label for="station-filter">정류장 검색/위치 확인</label>
+      <input id="station-filter" placeholder="정류장 이름 필터">
+      <div id="selected-route" class="muted">노선을 먼저 선택해줘.</div>
+      <div class="badge" style="margin-top:12px;">추천 정류장</div>
+      <div id="recommended-stations-empty" class="muted" style="margin-top:8px;">실시간 위치가 있는 정류장을 찾으면 여기에 먼저 보여줄게.</div>
+      <ul id="recommended-stations"></ul>
+      <ul id="station-results"></ul>
+    </section>
+  </div>
+
+  <section class="card" style="margin-top:20px;">
+    <div class="badge">정류장 지도</div>
+    <div id="map"></div>
+    <div id="map-caption" class="muted map-caption">노선을 선택하면 정류장을 지도에 표시해줘.</div>
+    <div id="live-bus-status" class="live-bus-status">현재 차량 위치: 아직 조회 전</div>
+  </section>
+
+  <section class="card" style="margin-top:20px;">
+    <div class="badge">실시간 조회</div>
+    <div id="arrival-result" class="arrival" style="margin-top:12px;">정류장을 선택하면 여기에 도착정보가 표시돼.</div>
+  </section>
+</main>
+<script
+  src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+  integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+  crossorigin=""
+></script>
+<script>
+  const routeQuery = document.getElementById('route-query');
+  const routeBtn = document.getElementById('route-search');
+  const routeResults = document.getElementById('route-results');
+  const stationFilter = document.getElementById('station-filter');
+  const stationResults = document.getElementById('station-results');
+  const recommendedStations = document.getElementById('recommended-stations');
+  const recommendedStationsEmpty = document.getElementById('recommended-stations-empty');
+  const selectedRoute = document.getElementById('selected-route');
+  const arrivalResult = document.getElementById('arrival-result');
+  const mapCaption = document.getElementById('map-caption');
+  const liveBusStatus = document.getElementById('live-bus-status');
+
+  let currentRoute = null;
+  let currentStations = [];
+  let currentRecommendedStations = [];
+  const map = L.map('map').setView([37.5665, 126.9780], 11);
+  const markerLayer = L.layerGroup().addTo(map);
+  let liveBusMarker = null;
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(map);
+
+  function escapeHtml(text) {
+    return String(text ?? '').replace(/[&<>\"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  }
+
+  function normalizeStationName(name) {
+    return String(name ?? '')
+      .replace(/[.·,()\-]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+  }
+
+  function findStationByLiveName(liveName) {
+    const normalizedLiveName = normalizeStationName(liveName);
+    if (!normalizedLiveName) return null;
+    return currentStations.find((station) => {
+      const normalizedStationName = normalizeStationName(station.station_name);
+      return normalizedStationName.includes(normalizedLiveName)
+        || normalizedLiveName.includes(normalizedStationName);
+    }) || null;
+  }
+
+  function clearLiveBusMarker() {
+    if (liveBusMarker) {
+      map.removeLayer(liveBusMarker);
+      liveBusMarker = null;
+    }
+  }
+
+  function updateLiveBusMarker(arrival) {
+    clearLiveBusMarker();
+    if (!arrival || !arrival.current_station_name) {
+      liveBusStatus.textContent = '현재 차량 위치: 실시간 차량 위치 정보 없음';
+      return;
+    }
+
+    const matchedStation = findStationByLiveName(arrival.current_station_name);
+    if (!matchedStation || !matchedStation.x || !matchedStation.y) {
+      liveBusStatus.textContent = `현재 차량 위치: ${arrival.current_station_name} (지도 좌표 매칭 실패)`;
+      return;
+    }
+
+    const latlng = [matchedStation.y, matchedStation.x];
+    const icon = L.divIcon({
+      className: 'live-bus-icon',
+      html: '🚌',
+      iconSize: [28, 28],
+      iconAnchor: [14, 14],
+    });
+    liveBusMarker = L.marker(latlng, { icon }).addTo(map);
+    liveBusMarker.bindPopup(`<strong>현재 차량 위치</strong><br>${escapeHtml(arrival.current_station_name)}<br>차량번호: ${escapeHtml(arrival.plate_no || '-')}`);
+    liveBusMarker.openPopup();
+    liveBusStatus.textContent = `현재 차량 위치: ${arrival.current_station_name}`;
+  }
+
+  async function searchRoutes() {
+    const query = routeQuery.value.trim();
+    if (!query) return;
+    const res = await fetch(`/api/routes?query=${encodeURIComponent(query)}`);
+    const data = await res.json();
+    routeResults.innerHTML = data.map(route => `
+      <li data-route-id="${route.route_id}">
+        <strong>${escapeHtml(route.route_name)}</strong><br>
+        <span class="muted">${escapeHtml(route.start_station)} → ${escapeHtml(route.end_station)}</span><br>
+        <span class="muted">${escapeHtml(route.admin_name)}</span>
+      </li>
+    `).join('');
+    [...routeResults.querySelectorAll('li')].forEach(li => li.onclick = () => loadStations(data.find(r => r.route_id === li.dataset.routeId)));
+  }
+
+  function renderRecommendedStations() {
+    recommendedStations.innerHTML = currentRecommendedStations.map((station) => `
+      <li data-station-id="${station.station_id}" data-sta-order="${station.station_seq}">
+        <strong>추천 · ${station.station_seq}. ${escapeHtml(station.station_name)}</strong><br>
+        <span class="muted">${escapeHtml(station.arrival.current_station_name || '위치 정보 없음')} · ${station.arrival.predict_time_min ?? '-'}분 후 · ${station.arrival.location_no ?? '-'}정거장 전</span>
+      </li>
+    `).join('');
+    recommendedStationsEmpty.textContent = currentRecommendedStations.length
+      ? '실시간 위치가 잡힌 정류장을 위에 먼저 모아뒀어.'
+      : '지금은 실시간 위치가 잡힌 추천 정류장이 없어.';
+    [...recommendedStations.querySelectorAll('li')].forEach((li) => {
+      li.onclick = () => loadArrival(li.dataset.stationId, li.dataset.staOrder);
+    });
+  }
+
+  function renderStations() {
+    const q = stationFilter.value.trim();
+    const filtered = q ? currentStations.filter(s => s.station_name.includes(q)) : currentStations;
+    stationResults.innerHTML = filtered.map(station => {
+      return `
+        <li data-station-id="${station.station_id}" data-sta-order="${station.station_seq}">
+          <strong>${station.station_seq}. ${escapeHtml(station.station_name)}</strong><br>
+          <span class="muted">좌표: ${station.y ?? '-'}, ${station.x ?? '-'}</span>
+        </li>
+      `;
+    }).join('');
+    [...stationResults.querySelectorAll('li')].forEach(li => li.onclick = () => loadArrival(li.dataset.stationId, li.dataset.staOrder));
+  }
+
+  function renderMap(stations) {
+    markerLayer.clearLayers();
+    clearLiveBusMarker();
+    const points = stations.filter(station => station.x && station.y);
+    if (!points.length) {
+      mapCaption.textContent = '정류장 좌표가 없어서 지도를 표시할 수 없어.';
+      return;
+    }
+
+    const bounds = [];
+    points.forEach(station => {
+      const latlng = [station.y, station.x];
+      bounds.push(latlng);
+      const marker = L.marker(latlng).addTo(markerLayer);
+      marker.bindPopup(`<strong>${escapeHtml(station.station_name)}</strong><br>${station.station_seq}번째 정류장`);
+      marker.on('click', () => loadArrival(station.station_id, station.station_seq));
+    });
+
+    map.fitBounds(bounds, { padding: [20, 20] });
+    mapCaption.textContent = `${currentRoute.route_name} 노선의 정류장 ${points.length}개를 지도에 표시 중이야.`;
+  }
+
+  async function loadRecommendedStations(routeId) {
+    const res = await fetch(`/api/routes/${routeId}/recommended-stations`);
+    currentRecommendedStations = await res.json();
+    renderRecommendedStations();
+  }
+
+  async function loadStations(route) {
+    currentRoute = route;
+    selectedRoute.textContent = `${route.route_name} | ${route.start_station} → ${route.end_station}`;
+    const res = await fetch(`/api/routes/${route.route_id}/stations`);
+    currentStations = await res.json();
+    renderStations();
+    renderMap(currentStations);
+    await loadRecommendedStations(route.route_id);
+  }
+
+  async function loadArrival(stationId, staOrder) {
+    if (!currentRoute) return;
+    const params = new URLSearchParams({ route_id: currentRoute.route_id, station_id: stationId, sta_order: staOrder });
+    const res = await fetch(`/api/arrival?${params.toString()}`);
+    const data = await res.json();
+    if (!data) {
+      updateLiveBusMarker(null);
+      arrivalResult.textContent = '현재 이 정류장 기준 실시간 도착정보가 없어.';
+      return;
+    }
+    updateLiveBusMarker(data);
+    arrivalResult.textContent = [
+      `노선: ${data.route_name}`,
+      `상태: ${data.flag || '-'}`,
+      `예상 도착(분): ${data.predict_time_min ?? '-'}`,
+      `남은 정류장 수: ${data.location_no ?? '-'}`,
+      `현재 차량 위치 정류장: ${data.current_station_name || '-'}`,
+      `차량번호: ${data.plate_no || '-'}`,
+      `잔여 좌석: ${data.remain_seat_count ?? '-'}`,
+      `메시지: ${data.result_message || '-'}`,
+    ].join('\n');
+  }
+
+  routeBtn.addEventListener('click', searchRoutes);
+  stationFilter.addEventListener('input', renderStations);
+  routeQuery.addEventListener('keydown', (e) => { if (e.key === 'Enter') searchRoutes(); });
+  searchRoutes();
+</script>
+</body>
+</html>

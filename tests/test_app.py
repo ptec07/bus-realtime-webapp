@@ -1,0 +1,142 @@
+from fastapi.testclient import TestClient
+import os
+
+from app.main import create_app
+
+
+class StubClient:
+    def search_routes(self, query: str):
+        return [{
+            "route_id": "222000107",
+            "route_name": query,
+            "start_station": "청학리",
+            "end_station": "잠실광역환승센터",
+            "admin_name": "경기도 남양주시",
+            "region_name": "구리,남양주,서울",
+        }]
+
+    def get_route_stations(self, route_id: str):
+        return [{
+            "station_id": "222001626",
+            "station_name": "청학리",
+            "station_seq": 1,
+            "x": 127.111,
+            "y": 37.701,
+        }]
+
+    def get_recommended_stations(self, route_id: str, limit: int = 3):
+        return [{
+            "station_id": "277103211",
+            "station_name": "퇴계원IC진입(경유)",
+            "station_seq": 33,
+            "x": 127.133,
+            "y": 37.642,
+            "arrival": {
+                "route_id": route_id,
+                "station_id": "277103211",
+                "sta_order": 33,
+                "flag": "PASS",
+                "predict_time_min": 2,
+                "location_no": 1,
+                "plate_no": "경기74아3248",
+                "current_station_name": "별내동주민센터입구.우미린아파",
+                "remain_seat_count": 41,
+                "result_message": "정상적으로 처리되었습니다.",
+            },
+        }][:limit]
+
+    def get_arrival(self, route_id: str, station_id: str, sta_order: int):
+        return {
+            "route_id": route_id,
+            "station_id": station_id,
+            "sta_order": sta_order,
+            "flag": "RUN",
+            "predict_time_min": 6,
+            "location_no": 3,
+            "plate_no": "경기70아1234",
+            "current_station_name": "별내면사무소.에코랜드입구",
+            "remain_seat_count": 12,
+            "result_message": "정상적으로 처리되었습니다.",
+        }
+
+
+def make_client():
+    app = create_app(client=StubClient())
+    return TestClient(app)
+
+
+def test_index_page_renders_search_ui():
+    response = make_client().get("/")
+
+    assert response.status_code == 200
+    assert "실시간 버스정보" in response.text
+    assert "노선번호" in response.text
+    assert 'id="map"' in response.text
+    assert "leaflet" in response.text.lower()
+    assert "정류장 지도" in response.text
+    assert "현재 차량 위치" in response.text
+    assert "추천 정류장" in response.text
+    assert "실시간 위치 있는 정류장만 보기" in response.text
+    assert "normalizeStationName" in response.text
+    assert "updateLiveBusMarker" in response.text
+    assert "loadRecommendedStations" in response.text
+    assert "renderRecommendedStations" in response.text
+    assert "liveOnlyToggle" in response.text
+    assert "matchesLiveRecommendation" in response.text
+
+
+def test_routes_api_returns_route_matches():
+    response = make_client().get("/api/routes", params={"query": "1001"})
+
+    assert response.status_code == 200
+    assert response.json()[0]["route_id"] == "222000107"
+
+
+def test_routes_api_requires_query():
+    response = make_client().get("/api/routes")
+
+    assert response.status_code == 400
+
+
+def test_route_stations_api_returns_station_list():
+    response = make_client().get("/api/routes/222000107/stations")
+
+    assert response.status_code == 200
+    assert response.json()[0]["station_name"] == "청학리"
+
+
+def test_recommended_stations_api_returns_live_station_candidates():
+    response = make_client().get("/api/routes/222000107/recommended-stations")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload[0]["station_name"] == "퇴계원IC진입(경유)"
+    assert payload[0]["arrival"]["location_no"] == 1
+
+
+def test_arrival_api_returns_live_bus_payload():
+    response = make_client().get(
+        "/api/arrival",
+        params={"route_id": "222000107", "station_id": "222001626", "sta_order": 1},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["flag"] == "RUN"
+    assert response.json()["predict_time_min"] == 6
+
+
+def test_arrival_api_requires_all_params():
+    response = make_client().get("/api/arrival", params={"route_id": "222000107"})
+
+    assert response.status_code == 400
+
+
+def test_index_page_renders_without_eager_service_key_lookup(monkeypatch, tmp_path):
+    monkeypatch.delenv("PUBLIC_DATA_SERVICE_KEY", raising=False)
+    monkeypatch.setattr(os, "getenv", lambda key, default=None: None)
+    monkeypatch.setattr("app.gbis_client.Path.home", lambda: tmp_path)
+
+    response = TestClient(create_app(client=False)).get("/")
+
+    assert response.status_code == 200
+    assert "실시간 버스정보" in response.text

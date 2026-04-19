@@ -1,0 +1,10 @@
+[project]
+name = "bus-realtime-webapp"
+version = "0.1.0"
+description = "Realtime Gyeonggi bus route and arrival webapp"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi",
+  "jinja2",
+  "uvicorn"
+]
