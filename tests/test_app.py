@@ -65,24 +65,31 @@ def make_client():
     return TestClient(app)
 
 
-def test_index_page_renders_search_ui():
+def test_index_page_renders_route_timeline_ui_without_map():
     response = make_client().get("/")
 
     assert response.status_code == 200
     assert "실시간 버스정보" in response.text
     assert "노선번호" in response.text
-    assert 'id="map"' in response.text
-    assert "leaflet" in response.text.lower()
-    assert "정류장 지도" in response.text
-    assert "현재 차량 위치" in response.text
-    assert "추천 정류장" in response.text
-    assert "실시간 위치 있는 정류장만 보기" in response.text
-    assert "normalizeStationName" in response.text
-    assert "updateLiveBusMarker" in response.text
-    assert "loadRecommendedStations" in response.text
-    assert "renderRecommendedStations" in response.text
-    assert "liveOnlyToggle" in response.text
-    assert "matchesLiveRecommendation" in response.text
+    assert "노선 타임라인" in response.text
+    assert "현재 버스 위치를 찾으면 정류장 사이에 표시해줄게." in response.text
+    assert "몇분후 도착" in response.text
+    assert 'id="route-refresh"' in response.text
+    assert "route-refresh-icon" in response.text
+    assert 'id="route-timeline"' in response.text
+    assert 'id="map"' not in response.text
+    assert "leaflet" not in response.text.lower()
+
+
+def test_index_page_contains_timeline_and_refresh_scripts():
+    response = make_client().get("/")
+
+    assert response.status_code == 200
+    assert "computeTimelineState" in response.text
+    assert "renderTimeline" in response.text
+    assert "renderBusMarker" in response.text
+    assert "window.location.reload()" in response.text
+    assert "loadRouteTimeline" in response.text
 
 
 def test_routes_api_returns_route_matches():

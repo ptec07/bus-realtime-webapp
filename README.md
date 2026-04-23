@@ -6,7 +6,9 @@
 - 노선번호 검색
 - 노선별 정류장 목록 조회
 - 정류장 이름 필터
-- 정류장 좌표 표시
+- 세로형 노선 타임라인 표시
+- 정류장별 계산된 예상 도착시간 표시
+- 정류장 사이 현재 버스 위치 아이콘 표시
 - 선택한 정류장의 실시간 도착정보 조회
 - 현재 차량 위치 기반 추천 정류장 3개 우선 표시
 
@@ -45,6 +47,12 @@ cd /home/ptec07/.hermes/hermes-agent/workforce/bus-realtime-webapp
 source /home/ptec07/.hermes/hermes-agent/venv/bin/activate
 pytest tests/ -q
 ```
+
+## Render 배포
+- Render Blueprint 설정 파일: `render.yaml`
+- 필수 환경변수: `PUBLIC_DATA_SERVICE_KEY`
+- Start Command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+- 운영 URL: `https://bus-realtime-webapp.onrender.com`
 
 ## 배포 파일
 ### `render.yaml`
