@@ -54,7 +54,9 @@ def create_app(client: GbisClient | None = None) -> FastAPI:
         if not route_id or not station_id or sta_order is None:
             raise HTTPException(status_code=400, detail="route_id, station_id, sta_order are required")
         try:
-            return get_client().get_arrival(route_id, station_id, sta_order)
+            client = get_client()
+            getter = getattr(client, "get_live_or_estimated_arrival", client.get_arrival)
+            return getter(route_id, station_id, sta_order)
         except Exception:
             return None
 

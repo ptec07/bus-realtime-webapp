@@ -255,7 +255,7 @@ def test_arrival_api_requires_all_params():
 
 def test_arrival_api_returns_null_instead_of_500_when_client_errors():
     class ErrorStubClient(StubClient):
-        def get_arrival(self, route_id: str, station_id: str, sta_order: int):
+        def get_live_or_estimated_arrival(self, route_id: str, station_id: str, sta_order: int):
             raise RuntimeError("429")
 
     response = TestClient(create_app(client=ErrorStubClient())).get(
@@ -265,6 +265,43 @@ def test_arrival_api_returns_null_instead_of_500_when_client_errors():
 
     assert response.status_code == 200
     assert response.json() is None
+
+
+def test_arrival_api_returns_estimated_fallback_payload_when_available():
+    class EstimatedStubClient(StubClient):
+        def get_live_or_estimated_arrival(self, route_id: str, station_id: str, sta_order: int):
+            return {
+                "route_id": route_id,
+                "route_name": "1001",
+                "station_id": station_id,
+                "sta_order": sta_order,
+                "flag": "ESTIMATE",
+                "predict_time_min": 4,
+                "location_no": 2,
+                "plate_no": "경기70아1234",
+                "current_station_name": "별내면사무소.에코랜드입구",
+                "remain_seat_count": 12,
+                "result_message": "실시간 위치 기반 추정치",
+                "buses": [
+                    {
+                        "vehicle_id": "bus-1",
+                        "plate_no": "경기70아1234",
+                        "predict_time_min": 4,
+                        "location_no": 2,
+                        "current_station_name": "별내면사무소.에코랜드입구",
+                        "remain_seat_count": 12,
+                    }
+                ],
+            }
+
+    response = TestClient(create_app(client=EstimatedStubClient())).get(
+        "/api/arrival",
+        params={"route_id": "222000107", "station_id": "222001626", "sta_order": 1},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["flag"] == "ESTIMATE"
+    assert response.json()["predict_time_min"] == 4
 
 
 def test_index_page_renders_without_eager_service_key_lookup(monkeypatch, tmp_path):
