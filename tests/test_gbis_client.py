@@ -33,6 +33,16 @@ def test_get_recommended_stations_returns_only_live_candidates():
                     "current_station_name": "중간",
                     "remain_seat_count": 8,
                     "result_message": "정상적으로 처리되었습니다.",
+                    "buses": [
+                        {
+                            "vehicle_id": "bus-1",
+                            "plate_no": "경기74아3248",
+                            "predict_time_min": 4,
+                            "location_no": 1,
+                            "current_station_name": "중간",
+                            "remain_seat_count": 8,
+                        }
+                    ],
                 }
             return None
 
@@ -56,9 +66,57 @@ def test_get_recommended_stations_returns_only_live_candidates():
                 "current_station_name": "중간",
                 "remain_seat_count": 8,
                 "result_message": "정상적으로 처리되었습니다.",
+                "buses": [
+                    {
+                        "vehicle_id": "bus-1",
+                        "plate_no": "경기74아3248",
+                        "predict_time_min": 4,
+                        "location_no": 1,
+                        "current_station_name": "중간",
+                        "remain_seat_count": 8,
+                    }
+                ],
             },
         }
     ]
+
+
+def test_get_recommended_stations_skips_api_errors_instead_of_raising():
+    class FakeClient(GbisClient):
+        def __init__(self):
+            pass
+
+        def get_route_stations(self, route_id: str):
+            return [
+                {"station_id": "1", "station_name": "기점", "station_seq": 1, "x": 127.1, "y": 37.1},
+                {"station_id": "2", "station_name": "중간", "station_seq": 2, "x": 127.2, "y": 37.2},
+            ]
+
+        def get_arrival(self, route_id: str, station_id: str, sta_order: int):
+            raise RuntimeError("429")
+
+    client = FakeClient()
+
+    assert client.get_recommended_stations("222000107", limit=2) == []
+
+
+def test_get_route_live_buses_skips_api_errors_instead_of_raising():
+    class FakeClient(GbisClient):
+        def __init__(self):
+            pass
+
+        def get_route_stations(self, route_id: str):
+            return [
+                {"station_id": "1", "station_name": "기점", "station_seq": 1, "x": 127.1, "y": 37.1},
+                {"station_id": "2", "station_name": "중간", "station_seq": 2, "x": 127.2, "y": 37.2},
+            ]
+
+        def get_arrival(self, route_id: str, station_id: str, sta_order: int):
+            raise RuntimeError("429")
+
+    client = FakeClient()
+
+    assert client.get_route_live_buses("222000107") == []
 
 
 def test_normalize_route_list_returns_simplified_routes():

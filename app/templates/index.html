@@ -419,11 +419,17 @@
 
   async function loadLiveBuses(routeId) {
     const res = await fetch(`/api/routes/${routeId}/live-buses`);
+    if (!res.ok) {
+      throw new Error(`live-buses ${res.status}`);
+    }
     currentLiveBuses = await res.json();
   }
 
   async function loadRouteTimeline(routeId) {
     const res = await fetch(`/api/routes/${routeId}/recommended-stations`);
+    if (!res.ok) {
+      throw new Error(`recommended-stations ${res.status}`);
+    }
     const recommendations = await res.json();
     currentTimelineArrival = recommendations.length ? recommendations[0].arrival : null;
     if (currentLiveBuses.length) {
@@ -439,11 +445,23 @@
   async function loadStations(route) {
     currentRoute = route;
     currentSelectedStationId = null;
+    currentTimelineArrival = null;
+    currentLiveBuses = [];
     selectedRoute.textContent = `${route.route_name} | ${route.start_station} → ${route.end_station}`;
     const res = await fetch(`/api/routes/${route.route_id}/stations`);
     currentStations = await res.json();
-    await loadLiveBuses(route.route_id);
-    await loadRouteTimeline(route.route_id);
+    timelineSummary.textContent = `${currentStations.length}개 정류장을 먼저 표시했어. 실시간 위치는 이어서 불러오는 중이야.`;
+    renderTimeline();
+
+    const results = await Promise.allSettled([
+      loadLiveBuses(route.route_id),
+      loadRouteTimeline(route.route_id),
+    ]);
+
+    if (results.every((result) => result.status === 'rejected')) {
+      timelineSummary.textContent = `${currentStations.length}개 정류장을 표시했어. 실시간 위치는 잠시 후 다시 시도해줘.`;
+      renderTimeline();
+    }
   }
 
   async function loadArrival(stationId, staOrder) {

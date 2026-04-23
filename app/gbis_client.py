@@ -37,7 +37,10 @@ class GbisClient:
     def get_recommended_stations(self, route_id: str, limit: int = 3) -> list[dict[str, Any]]:
         recommendations: list[dict[str, Any]] = []
         for station in self.get_route_stations(route_id):
-            arrival = self.get_arrival(route_id, station["station_id"], station["station_seq"])
+            try:
+                arrival = self.get_arrival(route_id, station["station_id"], station["station_seq"])
+            except Exception:
+                continue
             if not arrival or not has_live_position(arrival):
                 continue
             recommendations.append({**station, "arrival": arrival})
@@ -49,7 +52,10 @@ class GbisClient:
         live_buses: dict[str, dict[str, Any]] = {}
         stations = self.get_route_stations(route_id)
         for station in stations:
-            arrival = self.get_arrival(route_id, station["station_id"], station["station_seq"])
+            try:
+                arrival = self.get_arrival(route_id, station["station_id"], station["station_seq"])
+            except Exception:
+                continue
             if not arrival:
                 continue
             for bus in arrival.get("buses", []):

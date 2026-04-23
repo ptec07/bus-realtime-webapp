@@ -164,6 +164,8 @@ def test_index_page_contains_timeline_and_refresh_scripts():
     assert "renderBusMarker" in response.text
     assert "loadLiveBuses" in response.text
     assert "clearRouteQuery" in response.text
+    assert "Promise.allSettled" in response.text
+    assert "renderTimeline();" in response.text
     assert "window.location.reload()" in response.text
     assert "loadRouteTimeline" in response.text
 
