@@ -45,6 +45,32 @@ class GbisClient:
                 break
         return recommendations
 
+    def get_route_live_buses(self, route_id: str) -> list[dict[str, Any]]:
+        live_buses: dict[str, dict[str, Any]] = {}
+        stations = self.get_route_stations(route_id)
+        for station in stations:
+            arrival = self.get_arrival(route_id, station["station_id"], station["station_seq"])
+            if not arrival:
+                continue
+            for bus in arrival.get("buses", []):
+                bus_key = str(bus.get("vehicle_id") or bus.get("plate_no") or f"{station['station_id']}:{bus.get('current_station_name', '')}")
+                if bus_key in live_buses:
+                    continue
+                live_buses[bus_key] = {
+                    **bus,
+                    "station_id": station["station_id"],
+                    "station_seq": station["station_seq"],
+                    "station_name": station["station_name"],
+                }
+        return sorted(
+            live_buses.values(),
+            key=lambda bus: (
+                int(bus.get("station_seq") or 0),
+                int(bus.get("location_no") or 10**6),
+                str(bus.get("plate_no") or ""),
+            ),
+        )
+
     def get_arrival(self, route_id: str, station_id: str, sta_order: int) -> dict[str, Any] | None:
         payload = self._get_json(
             f"{ARRIVAL_BASE_URL}/getBusArrivalItemv2",
@@ -107,17 +133,34 @@ def normalize_station_list(payload: dict[str, Any]) -> list[dict[str, Any]]:
             "station_seq": int(item.get("stationSeq", 0)),
             "x": item.get("x"),
             "y": item.get("y"),
+            "turn_seq": int(item.get("turnSeq", 0) or 0),
+            "turn_yn": str(item.get("turnYn", "N") or "N"),
         }
         for item in items
     ]
 
 
 def has_live_position(arrival: dict[str, Any]) -> bool:
-    return bool(
-        arrival.get("location_no") is not None
-        or arrival.get("current_station_name")
-        or arrival.get("plate_no")
-    )
+    return bool(arrival.get("buses") or arrival.get("location_no") is not None or arrival.get("current_station_name") or arrival.get("plate_no"))
+
+
+def _normalize_bus_candidate(item: dict[str, Any], index: int) -> dict[str, Any] | None:
+    plate_no = item.get(f"plateNo{index}") or ""
+    current_station_name = item.get(f"stationNm{index}") or ""
+    predict_time_min = item.get(f"predictTime{index}") or None
+    location_no = item.get(f"locationNo{index}") or None
+    remain_seat_count = item.get(f"remainSeatCnt{index}") or None
+    vehicle_id = item.get(f"vehId{index}") or ""
+    if not any([plate_no, current_station_name, predict_time_min, location_no, vehicle_id]):
+        return None
+    return {
+        "vehicle_id": str(vehicle_id),
+        "plate_no": str(plate_no),
+        "predict_time_min": int(predict_time_min) if predict_time_min not in (None, "") else None,
+        "location_no": int(location_no) if location_no not in (None, "") else None,
+        "current_station_name": str(current_station_name),
+        "remain_seat_count": int(remain_seat_count) if remain_seat_count not in (None, "") else None,
+    }
 
 
 def normalize_arrival_item(payload: dict[str, Any]) -> dict[str, Any] | None:
@@ -126,16 +169,19 @@ def normalize_arrival_item(payload: dict[str, Any]) -> dict[str, Any] | None:
         return None
 
     item = payload.get("response", {}).get("msgBody", {}).get("busArrivalItem", {})
+    buses = [bus for bus in (_normalize_bus_candidate(item, 1), _normalize_bus_candidate(item, 2)) if bus]
+    primary_bus = buses[0] if buses else {}
     return {
         "route_id": str(item.get("routeId", "")),
         "route_name": str(item.get("routeName", "")),
         "station_id": str(item.get("stationId", "")),
         "sta_order": int(item.get("staOrder", 0)),
         "flag": item.get("flag", ""),
-        "predict_time_min": item.get("predictTime1") or None,
-        "location_no": item.get("locationNo1") or None,
-        "plate_no": item.get("plateNo1") or "",
-        "current_station_name": item.get("stationNm1") or "",
-        "remain_seat_count": item.get("remainSeatCnt1") or None,
+        "predict_time_min": primary_bus.get("predict_time_min"),
+        "location_no": primary_bus.get("location_no"),
+        "plate_no": primary_bus.get("plate_no", ""),
+        "current_station_name": primary_bus.get("current_station_name", ""),
+        "remain_seat_count": primary_bus.get("remain_seat_count"),
         "result_message": header.get("resultMessage", ""),
+        "buses": buses,
     }

@@ -1,4 +1,10 @@
-from app.gbis_client import GbisClient, normalize_route_list, normalize_station_list, normalize_arrival_item, load_service_key
+from app.gbis_client import (
+    GbisClient,
+    load_service_key,
+    normalize_arrival_item,
+    normalize_route_list,
+    normalize_station_list,
+)
 import os
 
 
@@ -111,6 +117,8 @@ def test_normalize_station_list_returns_sequence_and_coordinates():
             "station_seq": 1,
             "x": 127.111,
             "y": 37.701,
+            "turn_seq": 0,
+            "turn_yn": "N",
         }
     ]
 
@@ -148,7 +156,65 @@ def test_normalize_arrival_item_returns_clean_status_fields():
         "current_station_name": "별내면사무소.에코랜드입구",
         "remain_seat_count": 12,
         "result_message": "정상적으로 처리되었습니다.",
+        "buses": [
+            {
+                "vehicle_id": "",
+                "plate_no": "경기70아1234",
+                "predict_time_min": 6,
+                "location_no": 3,
+                "current_station_name": "별내면사무소.에코랜드입구",
+                "remain_seat_count": 12,
+            }
+        ],
     }
+
+
+def test_normalize_arrival_item_collects_multiple_live_buses():
+    payload = {
+        "response": {
+            "msgHeader": {"resultCode": 0, "resultMessage": "정상적으로 처리되었습니다."},
+            "msgBody": {
+                "busArrivalItem": {
+                    "routeId": 222000107,
+                    "routeName": 1001,
+                    "stationId": 222001626,
+                    "staOrder": 5,
+                    "flag": "RUN",
+                    "predictTime1": 2,
+                    "predictTime2": 7,
+                    "locationNo1": 1,
+                    "locationNo2": 4,
+                    "plateNo1": "경기70아1234",
+                    "plateNo2": "경기70아5678",
+                    "stationNm1": "별내면사무소.에코랜드입구",
+                    "stationNm2": "주공2.3단지.농협.새마을금고",
+                    "remainSeatCnt1": 12,
+                    "remainSeatCnt2": 5,
+                    "vehId1": "bus-1",
+                    "vehId2": "bus-2",
+                }
+            },
+        }
+    }
+
+    assert normalize_arrival_item(payload)["buses"] == [
+        {
+            "vehicle_id": "bus-1",
+            "plate_no": "경기70아1234",
+            "predict_time_min": 2,
+            "location_no": 1,
+            "current_station_name": "별내면사무소.에코랜드입구",
+            "remain_seat_count": 12,
+        },
+        {
+            "vehicle_id": "bus-2",
+            "plate_no": "경기70아5678",
+            "predict_time_min": 7,
+            "location_no": 4,
+            "current_station_name": "주공2.3단지.농협.새마을금고",
+            "remain_seat_count": 5,
+        },
+    ]
 
 
 def test_normalize_arrival_item_returns_none_when_api_has_no_result():

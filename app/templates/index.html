@@ -16,7 +16,6 @@
       --primary: #2563eb;
       --primary-soft: #dbeafe;
       --success: #0f766e;
-      --danger: #dc2626;
       --shadow: 0 12px 32px rgba(15, 23, 42, 0.08);
     }
 
@@ -30,7 +29,6 @@
     .card { background: var(--card); border-radius: 20px; padding: 18px; box-shadow: var(--shadow); }
     .card-title-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
     .badge { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 999px; background: var(--primary-soft); color: var(--primary); font-size: 12px; font-weight: 700; }
-    .toolbar { display: flex; align-items: center; gap: 8px; }
     label { display: block; margin-bottom: 8px; font-weight: 700; }
     input, button { width: 100%; border: 1px solid var(--border); border-radius: 12px; padding: 11px 13px; font: inherit; }
     button { background: var(--primary); color: white; border: none; font-weight: 700; cursor: pointer; }
@@ -38,6 +36,7 @@
     ul { list-style: none; padding: 0; margin: 12px 0 0; }
     li { border: 1px solid var(--border); border-radius: 14px; padding: 12px; margin-bottom: 10px; cursor: pointer; background: #fff; }
     li:hover { background: #f8fbff; border-color: var(--border-strong); }
+
     .route-refresh {
       width: 42px;
       min-width: 42px;
@@ -54,6 +53,29 @@
     }
     .route-refresh:hover .route-refresh-icon { transform: rotate(180deg); }
     .route-refresh-icon { display: inline-flex; transition: transform .35s ease; font-size: 20px; line-height: 1; }
+
+    .search-input-wrap { position: relative; }
+    .search-input-wrap input { padding-right: 42px; }
+    .route-query-clear {
+      position: absolute;
+      right: 8px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 28px;
+      min-width: 28px;
+      height: 28px;
+      padding: 0;
+      border-radius: 999px;
+      background: #e5e7eb;
+      color: #374151;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      font-weight: 700;
+    }
+    .route-query-clear[hidden] { display: none; }
+
     .selected-route { margin-top: 12px; }
     .timeline-summary { margin-top: 10px; padding: 12px 14px; border-radius: 14px; background: #f8fafc; color: #1f2937; font-size: 14px; }
     .timeline-wrap { margin-top: 18px; }
@@ -103,18 +125,22 @@
     .timeline-arrival { margin-top: 8px; font-size: 14px; font-weight: 700; color: #0f172a; }
     .timeline-item.passed .timeline-arrival { color: var(--muted); }
     .timeline-item.current .timeline-arrival { color: var(--success); }
+
     .timeline-bus-marker {
       position: relative;
-      margin: -2px 0 8px 0;
+      margin: -2px 0 10px 0;
       padding-left: 56px;
-      min-height: 36px;
+      min-height: 18px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
     }
     .timeline-bus-marker::before {
       content: '';
       position: absolute;
       left: 24px;
       top: -2px;
-      bottom: -4px;
+      bottom: -6px;
       width: 3px;
       background: linear-gradient(180deg, #60a5fa 0%, #1d4ed8 100%);
       border-radius: 999px;
@@ -130,9 +156,9 @@
       font-size: 13px;
       font-weight: 800;
       border: 1px solid #bfdbfe;
-      margin-left: -2px;
     }
     .timeline-bus-pill .bus-icon { font-size: 18px; line-height: 1; }
+
     .empty-state {
       margin-top: 16px;
       padding: 18px;
@@ -142,15 +168,8 @@
       background: #f8fafc;
       text-align: center;
     }
-    .arrival { white-space: pre-line; line-height: 1.65; }
-    .helper-list { display: grid; gap: 10px; margin-top: 12px; }
-    .helper-chip {
-      padding: 10px 12px;
-      border-radius: 14px;
-      background: #f8fafc;
-      border: 1px solid var(--border);
-      font-size: 14px;
-    }
+    .arrival { white-space: pre-line; line-height: 1.65; min-height: 24px; }
+
     @media (max-width: 840px) {
       main { padding: 18px; }
       .grid { grid-template-columns: 1fr; }
@@ -163,7 +182,7 @@
   <div class="page-header">
     <div>
       <h1>실시간 버스정보 웹앱</h1>
-      <p class="muted">노선번호 검색 → 노선 선택 → 정류장별 예상 도착시간과 현재 버스 위치를 세로 타임라인으로 확인</p>
+      <p class="muted">노선번호 검색 후 정류장 타임라인과 운행 중인 버스를 함께 확인</p>
     </div>
     <button id="route-refresh" class="route-refresh" type="button" aria-label="화면 새로고침">
       <span class="route-refresh-icon">↻</span>
@@ -173,43 +192,41 @@
   <div class="grid">
     <section class="card">
       <label for="route-query">노선번호</label>
-      <input id="route-query" placeholder="예: 1001" value="1001">
-      <button id="route-search" type="button">노선 검색</button>
+      <div class="search-input-wrap">
+        <input id="route-query" placeholder="예: 1001" value="1001">
+        <button id="route-query-clear" class="route-query-clear" type="button" aria-label="노선번호 입력 지우기">×</button>
+      </div>
+      <button id="route-search" type="button" style="margin-top:8px;">노선 검색</button>
       <ul id="route-results"></ul>
 
       <div class="selected-route muted" id="selected-route">노선을 먼저 선택해줘.</div>
 
       <label for="station-filter" style="margin-top:16px;">정류장 필터</label>
       <input id="station-filter" placeholder="정류장 이름 필터">
-
-      <div class="helper-list">
-        <div class="helper-chip">정류장명 하단에 계산된 <strong>“몇분후 도착”</strong> 을 표시해줄게.</div>
-        <div class="helper-chip">현재 버스 위치를 찾으면 정류장 <strong>선 사이에 버스 아이콘</strong>으로 표시해줄게.</div>
-      </div>
     </section>
 
     <section class="card">
       <div class="card-title-row">
         <div>
           <div class="badge">노선 타임라인</div>
-          <div id="timeline-summary" class="timeline-summary">노선을 선택하면 정류장명을 세로로 나열하고 선으로 이어서 보여줄게.</div>
+          <div id="timeline-summary" class="timeline-summary">노선을 선택하면 타임라인이 표시돼.</div>
         </div>
       </div>
-      <div class="muted">현재 버스 위치를 찾으면 정류장 사이에 표시해줄게.</div>
       <div class="timeline-wrap">
         <ol id="route-timeline" class="timeline"></ol>
-        <div id="timeline-empty" class="empty-state">노선을 선택하면 이 영역에 세로 노선도를 그려줄게.</div>
+        <div id="timeline-empty" class="empty-state">노선을 선택하면 이 영역에 세로 노선도가 그려져.</div>
       </div>
     </section>
   </div>
 
   <section class="card" style="margin-top:20px;">
     <div class="badge">실시간 조회</div>
-    <div id="arrival-result" class="arrival" style="margin-top:12px;">정류장을 선택하면 여기에 실시간 상세 정보가 표시돼.</div>
+    <div id="arrival-result" class="arrival" style="margin-top:12px;"></div>
   </section>
 </main>
 <script>
   const routeQuery = document.getElementById('route-query');
+  const routeQueryClear = document.getElementById('route-query-clear');
   const routeBtn = document.getElementById('route-search');
   const routeResults = document.getElementById('route-results');
   const stationFilter = document.getElementById('station-filter');
@@ -224,9 +241,20 @@
   let currentStations = [];
   let currentTimelineArrival = null;
   let currentSelectedStationId = null;
+  let currentLiveBuses = [];
 
   function escapeHtml(text) {
     return String(text ?? '').replace(/[&<>\"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  }
+
+  function clearRouteQuery() {
+    routeQuery.value = '';
+    updateRouteQueryClear();
+    routeQuery.focus();
+  }
+
+  function updateRouteQueryClear() {
+    routeQueryClear.hidden = !routeQuery.value.trim();
   }
 
   function normalizeStationName(name) {
@@ -254,7 +282,7 @@
 
   function computeTimelineState(arrival) {
     if (!arrival || !currentStations.length) {
-      return { currentStationSeq: null, busSegmentAfterSeq: null, perStopMinutes: null, estimatedMinutesBySeq: new Map() };
+      return { currentStationSeq: null, perStopMinutes: null, estimatedMinutesBySeq: new Map() };
     }
 
     const matchedStation = findStationByLiveName(arrival.current_station_name);
@@ -294,12 +322,7 @@
       });
     }
 
-    const lastSeq = currentStations.length ? Number(currentStations[currentStations.length - 1].station_seq) : null;
-    const busSegmentAfterSeq = currentStationSeq !== null && lastSeq !== null && currentStationSeq < lastSeq
-      ? currentStationSeq
-      : null;
-
-    return { currentStationSeq, busSegmentAfterSeq, perStopMinutes, estimatedMinutesBySeq };
+    return { currentStationSeq, perStopMinutes, estimatedMinutesBySeq };
   }
 
   function stationArrivalLabel(station, timelineState) {
@@ -320,13 +343,18 @@
     return 'upcoming';
   }
 
-  function renderBusMarker(station, timelineState) {
-    if (!timelineState || timelineState.busSegmentAfterSeq !== Number(station.station_seq)) {
-      return '';
-    }
+  function renderBusMarker(station) {
+    const seq = Number(station.station_seq);
+    const buses = currentLiveBuses.filter((bus) => Number(bus.station_seq) === seq);
+    if (!buses.length) return '';
     return `
       <div class="timeline-bus-marker">
-        <div class="timeline-bus-pill"><span class="bus-icon">🚌</span><span>현재 버스 위치</span></div>
+        ${buses.map((bus) => `
+          <div class="timeline-bus-pill">
+            <span class="bus-icon">🚌</span>
+            <span>${escapeHtml(bus.plate_no || '운행중')} · ${escapeHtml(formatMinuteLabel(bus.predict_time_min))}</span>
+          </div>
+        `).join('')}
       </div>
     `;
   }
@@ -342,7 +370,7 @@
       timelineEmpty.hidden = false;
       timelineEmpty.textContent = currentStations.length
         ? '필터와 일치하는 정류장이 없어.'
-        : '노선을 선택하면 이 영역에 세로 노선도를 그려줄게.';
+        : '노선을 선택하면 이 영역에 세로 노선도가 그려져.';
       return;
     }
 
@@ -358,10 +386,10 @@
           <div class="timeline-item-inner">
             <div class="timeline-order">${station.station_seq}번째 정류장</div>
             <div class="timeline-station">${escapeHtml(station.station_name)}</div>
-            <div class="timeline-meta">${stationStatusClass(station, timelineState) === 'current' ? '차량이 방금 이 정류장을 지나고 있어.' : '정류장별 예상 도착시간을 계산해서 보여주는 중'}</div>
+            <div class="timeline-meta">${stationClass === 'current' ? '차량이 가까운 정류장에 있어.' : '실시간 위치 기준 계산'}</div>
             <div class="timeline-arrival">${escapeHtml(stationArrivalLabel(station, timelineState))}</div>
           </div>
-          ${renderBusMarker(station, timelineState)}
+          ${renderBusMarker(station)}
         </li>
       `;
     }).join('');
@@ -389,14 +417,21 @@
     });
   }
 
+  async function loadLiveBuses(routeId) {
+    const res = await fetch(`/api/routes/${routeId}/live-buses`);
+    currentLiveBuses = await res.json();
+  }
+
   async function loadRouteTimeline(routeId) {
     const res = await fetch(`/api/routes/${routeId}/recommended-stations`);
     const recommendations = await res.json();
     currentTimelineArrival = recommendations.length ? recommendations[0].arrival : null;
-    if (currentTimelineArrival && currentTimelineArrival.current_station_name) {
-      timelineSummary.textContent = `${currentTimelineArrival.current_station_name} 기준으로 전체 정류장 도착시간을 계산했어.`;
+    if (currentLiveBuses.length) {
+      timelineSummary.textContent = `현재 운행 중 버스 ${currentLiveBuses.length}대를 표시 중이야.`;
+    } else if (currentTimelineArrival && currentTimelineArrival.current_station_name) {
+      timelineSummary.textContent = `${currentTimelineArrival.current_station_name} 기준으로 도착시간을 계산했어.`;
     } else {
-      timelineSummary.textContent = '실시간 차량 위치를 아직 찾지 못해서 계산 가능한 정보부터 먼저 보여줄게.';
+      timelineSummary.textContent = '실시간 차량 위치를 찾는 중이야.';
     }
     renderTimeline();
   }
@@ -407,6 +442,7 @@
     selectedRoute.textContent = `${route.route_name} | ${route.start_station} → ${route.end_station}`;
     const res = await fetch(`/api/routes/${route.route_id}/stations`);
     currentStations = await res.json();
+    await loadLiveBuses(route.route_id);
     await loadRouteTimeline(route.route_id);
   }
 
@@ -417,12 +453,12 @@
     const res = await fetch(`/api/arrival?${params.toString()}`);
     const data = await res.json();
     if (!data) {
-      arrivalResult.textContent = '현재 이 정류장 기준 실시간 도착정보가 없어.';
+      arrivalResult.textContent = '';
       renderTimeline();
       return;
     }
     currentTimelineArrival = data;
-    timelineSummary.textContent = `${data.current_station_name || '실시간 위치 확인'} 기준으로 정류장별 도착시간을 다시 계산했어.`;
+    timelineSummary.textContent = `${data.current_station_name || '실시간 위치 확인'} 기준으로 다시 계산했어.`;
     arrivalResult.textContent = [
       `노선: ${data.route_name}`,
       `상태: ${data.flag || '-'}`,
@@ -437,12 +473,15 @@
   }
 
   routeRefresh.addEventListener('click', () => window.location.reload());
+  routeQueryClear.addEventListener('click', clearRouteQuery);
   routeBtn.addEventListener('click', searchRoutes);
   stationFilter.addEventListener('input', renderTimeline);
+  routeQuery.addEventListener('input', updateRouteQueryClear);
   routeQuery.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') searchRoutes();
   });
 
+  updateRouteQueryClear();
   searchRoutes();
 </script>
 </body>
