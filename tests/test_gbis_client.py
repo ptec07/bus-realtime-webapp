@@ -546,3 +546,22 @@ def test_load_service_key_prefers_non_public_gbis_env(monkeypatch, tmp_path):
     monkeypatch.setattr("app.gbis_client.Path.home", lambda: tmp_path)
 
     assert load_service_key() == "gbis-key"
+
+
+def test_load_service_key_trims_trailing_period_from_env(monkeypatch, tmp_path):
+    monkeypatch.delenv("GBIS_SERVICE_KEY", raising=False)
+    monkeypatch.setenv("PUBLIC_DATA_SERVICE_KEY", "abc123.")
+    monkeypatch.setattr("app.gbis_client.Path.home", lambda: tmp_path)
+
+    assert load_service_key() == "abc123"
+
+
+def test_load_service_key_trims_quotes_and_trailing_period_from_dotenv(monkeypatch, tmp_path):
+    monkeypatch.delenv("GBIS_SERVICE_KEY", raising=False)
+    monkeypatch.delenv("PUBLIC_DATA_SERVICE_KEY", raising=False)
+    env_dir = tmp_path / ".hermes"
+    env_dir.mkdir()
+    (env_dir / ".env").write_text('PUBLIC_DATA_SERVICE_KEY="abc123."\n')
+    monkeypatch.setattr("app.gbis_client.Path.home", lambda: tmp_path)
+
+    assert load_service_key() == "abc123"

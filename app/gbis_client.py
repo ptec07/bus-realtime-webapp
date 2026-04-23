@@ -159,19 +159,26 @@ def load_service_key() -> str:
     for env_name in ("GBIS_SERVICE_KEY", "PUBLIC_DATA_SERVICE_KEY"):
         env_key = os.getenv(env_name)
         if env_key:
-            return env_key
+            return sanitize_service_key(env_key)
 
     env_path = Path.home() / ".hermes" / ".env"
     if env_path.exists():
         for line in env_path.read_text().splitlines():
             if line.startswith("GBIS_SERVICE_KEY=") or line.startswith("PUBLIC_DATA_SERVICE_KEY="):
-                return line.split("=", 1)[1].strip()
+                return sanitize_service_key(line.split("=", 1)[1])
 
     raise GbisApiError("GBIS_SERVICE_KEY 또는 PUBLIC_DATA_SERVICE_KEY를 찾지 못했습니다.")
 
 
 def _header(payload: dict[str, Any]) -> dict[str, Any]:
     return payload.get("response", {}).get("msgHeader", {})
+
+
+def sanitize_service_key(raw: str) -> str:
+    key = str(raw).strip().strip('"').strip("'")
+    if key.endswith('.') and key[:-1].isalnum():
+        key = key[:-1]
+    return key
 
 
 def normalize_route_list(payload: dict[str, Any]) -> list[dict[str, Any]]:
