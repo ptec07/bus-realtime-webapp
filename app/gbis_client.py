@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
@@ -32,6 +33,10 @@ class GbisClient:
             self._route_scan_offsets = {}
         if not hasattr(self, "_route_last_snapshot"):
             self._route_last_snapshot = {}
+        if not hasattr(self, "arrival_cache_ttl"):
+            self.arrival_cache_ttl = 30
+        if not hasattr(self, "_arrival_cache"):
+            self._arrival_cache = {}
 
     def search_routes(self, query: str) -> list[dict[str, Any]]:
         payload = self._get_json(
@@ -143,17 +148,29 @@ class GbisClient:
         return self._route_last_snapshot.get(route_id, snapshot)
 
     def get_arrival(self, route_id: str, station_id: str, sta_order: int) -> dict[str, Any] | None:
-        payload = self._get_json(
-            f"{ARRIVAL_BASE_URL}/getBusArrivalItemv2",
-            {
-                "serviceKey": self.service_key,
-                "routeId": route_id,
-                "stationId": station_id,
-                "staOrder": str(sta_order),
-                "format": "json",
-            },
-        )
-        return normalize_arrival_item(payload)
+        self._ensure_live_snapshot_state()
+        cache_key = (str(route_id), str(station_id), int(sta_order))
+        now = time.time()
+        cached = self._arrival_cache.get(cache_key)
+        ttl = getattr(self, "arrival_cache_ttl", 30)
+        if cached and now - cached["timestamp"] <= ttl:
+            return cached["data"]
+        try:
+            payload = self._get_json(
+                f"{ARRIVAL_BASE_URL}/getBusArrivalItemv2",
+                {
+                    "serviceKey": self.service_key,
+                    "routeId": route_id,
+                    "stationId": station_id,
+                    "staOrder": str(sta_order),
+                    "format": "json",
+                },
+            )
+            arrival = normalize_arrival_item(payload)
+        except Exception:
+            return cached["data"] if cached else None
+        self._arrival_cache[cache_key] = {"timestamp": now, "data": arrival}
+        return arrival
 
     def _get_json(self, base_url: str, params: dict[str, str]) -> dict[str, Any]:
         request = Request(f"{base_url}?{urlencode(params)}", headers={"Accept": "application/json"})

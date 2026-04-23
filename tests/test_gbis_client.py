@@ -6,6 +6,7 @@ from app.gbis_client import (
     normalize_station_list,
 )
 import os
+import time
 
 
 def test_get_recommended_stations_returns_only_live_candidates():
@@ -382,6 +383,40 @@ def test_get_route_live_snapshot_enriches_direct_bus_locations_with_arrival_eta(
     assert snapshot['buses'][0]['location_no'] == 2
     assert snapshot['recommendations'][0]['arrival']['predict_time_min'] == 4
     assert snapshot['recommendations'][0]['arrival']['location_no'] == 2
+
+
+def test_get_arrival_returns_cached_value_when_api_is_rate_limited():
+    class FakeClient(GbisClient):
+        def __init__(self):
+            self.arrival_cache_ttl = 30
+            self._arrival_cache = {
+                ('222000107', '222001491', 20): {
+                    'timestamp': time.time() - 5,
+                    'data': {
+                        'route_id': '222000107',
+                        'station_id': '222001491',
+                        'sta_order': 20,
+                        'flag': 'RUN',
+                        'predict_time_min': 3,
+                        'location_no': 1,
+                        'plate_no': '경기74아3403',
+                        'current_station_name': '퍼스트포레.별가람마을1-8',
+                        'remain_seat_count': 20,
+                        'result_message': 'cached',
+                        'buses': [],
+                    },
+                }
+            }
+
+        def _get_json(self, base_url: str, params: dict[str, str]):
+            raise RuntimeError('429')
+
+    client = FakeClient()
+
+    arrival = client.get_arrival('222000107', '222001491', 20)
+
+    assert arrival['predict_time_min'] == 3
+    assert arrival['result_message'] == 'cached'
 
 
 def test_get_route_live_snapshot_falls_back_when_direct_location_api_fails():

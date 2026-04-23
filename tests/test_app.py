@@ -253,6 +253,20 @@ def test_arrival_api_requires_all_params():
     assert response.status_code == 400
 
 
+def test_arrival_api_returns_null_instead_of_500_when_client_errors():
+    class ErrorStubClient(StubClient):
+        def get_arrival(self, route_id: str, station_id: str, sta_order: int):
+            raise RuntimeError("429")
+
+    response = TestClient(create_app(client=ErrorStubClient())).get(
+        "/api/arrival",
+        params={"route_id": "222000107", "station_id": "222001626", "sta_order": 1},
+    )
+
+    assert response.status_code == 200
+    assert response.json() is None
+
+
 def test_index_page_renders_without_eager_service_key_lookup(monkeypatch, tmp_path):
     monkeypatch.delenv("PUBLIC_DATA_SERVICE_KEY", raising=False)
     monkeypatch.setattr(os, "getenv", lambda key, default=None: None)
