@@ -119,6 +119,54 @@ def test_get_route_live_buses_skips_api_errors_instead_of_raising():
     assert client.get_route_live_buses("222000107") == []
 
 
+def test_get_recommended_stations_stops_after_scan_budget():
+    class FakeClient(GbisClient):
+        def __init__(self):
+            self.calls = []
+            self.max_station_scans = 3
+
+        def get_route_stations(self, route_id: str):
+            return [
+                {"station_id": "1", "station_name": "A", "station_seq": 1, "x": 127.1, "y": 37.1},
+                {"station_id": "2", "station_name": "B", "station_seq": 2, "x": 127.2, "y": 37.2},
+                {"station_id": "3", "station_name": "C", "station_seq": 3, "x": 127.3, "y": 37.3},
+                {"station_id": "4", "station_name": "D", "station_seq": 4, "x": 127.4, "y": 37.4},
+                {"station_id": "5", "station_name": "E", "station_seq": 5, "x": 127.5, "y": 37.5},
+            ]
+
+        def get_arrival(self, route_id: str, station_id: str, sta_order: int):
+            self.calls.append(station_id)
+            return None
+
+    client = FakeClient()
+
+    assert client.get_recommended_stations("222000107", limit=3) == []
+    assert client.calls == ["1", "2", "3"]
+
+
+def test_get_route_live_buses_stops_after_scan_budget():
+    class FakeClient(GbisClient):
+        def __init__(self):
+            self.calls = []
+            self.max_station_scans = 2
+
+        def get_route_stations(self, route_id: str):
+            return [
+                {"station_id": "1", "station_name": "A", "station_seq": 1, "x": 127.1, "y": 37.1},
+                {"station_id": "2", "station_name": "B", "station_seq": 2, "x": 127.2, "y": 37.2},
+                {"station_id": "3", "station_name": "C", "station_seq": 3, "x": 127.3, "y": 37.3},
+            ]
+
+        def get_arrival(self, route_id: str, station_id: str, sta_order: int):
+            self.calls.append(station_id)
+            return None
+
+    client = FakeClient()
+
+    assert client.get_route_live_buses("222000107") == []
+    assert client.calls == ["1", "2"]
+
+
 def test_normalize_route_list_returns_simplified_routes():
     payload = {
         "response": {

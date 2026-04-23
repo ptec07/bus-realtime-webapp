@@ -16,9 +16,10 @@ class GbisApiError(RuntimeError):
 
 
 class GbisClient:
-    def __init__(self, service_key: str | None = None, timeout: int = 20):
+    def __init__(self, service_key: str | None = None, timeout: int = 20, max_station_scans: int = 12):
         self.service_key = service_key or load_service_key()
         self.timeout = timeout
+        self.max_station_scans = max_station_scans
 
     def search_routes(self, query: str) -> list[dict[str, Any]]:
         payload = self._get_json(
@@ -36,7 +37,9 @@ class GbisClient:
 
     def get_recommended_stations(self, route_id: str, limit: int = 3) -> list[dict[str, Any]]:
         recommendations: list[dict[str, Any]] = []
-        for station in self.get_route_stations(route_id):
+        for index, station in enumerate(self.get_route_stations(route_id), start=1):
+            if index > getattr(self, "max_station_scans", 12):
+                break
             try:
                 arrival = self.get_arrival(route_id, station["station_id"], station["station_seq"])
             except Exception:
@@ -51,7 +54,9 @@ class GbisClient:
     def get_route_live_buses(self, route_id: str) -> list[dict[str, Any]]:
         live_buses: dict[str, dict[str, Any]] = {}
         stations = self.get_route_stations(route_id)
-        for station in stations:
+        for index, station in enumerate(stations, start=1):
+            if index > getattr(self, "max_station_scans", 12):
+                break
             try:
                 arrival = self.get_arrival(route_id, station["station_id"], station["station_seq"])
             except Exception:
