@@ -74,6 +74,12 @@ class GbisClient:
             live_buses = [
                 enrich_direct_bus_location(location, station_lookup) for location in direct_locations
             ]
+            for bus in live_buses[: max(recommendation_limit, 3)]:
+                try:
+                    arrival = self.get_arrival(route_id, bus["station_id"], bus["station_seq"])
+                except Exception:
+                    continue
+                enrich_bus_with_arrival(bus, arrival)
             recommendations = [
                 build_direct_location_recommendation(bus, station_lookup)
                 for bus in live_buses[:recommendation_limit]
@@ -225,6 +231,7 @@ def enrich_direct_bus_location(location: dict[str, Any], station_lookup: dict[st
     station_name = station.get("station_name") or location.get("stationName") or station_id
     station_seq = int(location.get("stationSeq") or station.get("station_seq") or 0)
     return {
+        "route_id": str(location.get("routeId", "")),
         "vehicle_id": str(location.get("vehId", "")),
         "plate_no": str(location.get("plateNo", "")),
         "predict_time_min": None,
@@ -238,6 +245,27 @@ def enrich_direct_bus_location(location: dict[str, Any], station_lookup: dict[st
         "plate_type": location.get("plateType"),
         "state_cd": location.get("stateCd"),
     }
+
+
+def enrich_bus_with_arrival(bus: dict[str, Any], arrival: dict[str, Any] | None) -> None:
+    if not arrival:
+        return
+    matched = None
+    for candidate in arrival.get("buses", []):
+        same_vehicle = bus.get("vehicle_id") and str(candidate.get("vehicle_id", "")) == str(bus.get("vehicle_id"))
+        same_plate = bus.get("plate_no") and str(candidate.get("plate_no", "")) == str(bus.get("plate_no"))
+        if same_vehicle or same_plate:
+            matched = candidate
+            break
+    primary = matched or (arrival.get("buses") or [{}])[0]
+    if primary.get("predict_time_min") is not None:
+        bus["predict_time_min"] = primary.get("predict_time_min")
+    if primary.get("location_no") is not None:
+        bus["location_no"] = primary.get("location_no")
+    if primary.get("current_station_name"):
+        bus["current_station_name"] = primary.get("current_station_name")
+    if primary.get("remain_seat_count") is not None:
+        bus["remain_seat_count"] = primary.get("remain_seat_count")
 
 
 def build_direct_location_recommendation(bus: dict[str, Any], station_lookup: dict[str, dict[str, Any]]) -> dict[str, Any] | None:
