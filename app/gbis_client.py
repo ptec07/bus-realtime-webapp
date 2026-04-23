@@ -9,6 +9,7 @@ from urllib.request import Request, urlopen
 
 ROUTE_BASE_URL = "https://apis.data.go.kr/6410000/busrouteservice/v2"
 ARRIVAL_BASE_URL = "https://apis.data.go.kr/6410000/busarrivalservice/v2"
+LOCATION_BASE_URL = "https://apis.data.go.kr/6410000/buslocationservice/v2"
 
 
 class GbisApiError(RuntimeError):
@@ -52,11 +53,41 @@ class GbisClient:
     def get_route_live_buses(self, route_id: str) -> list[dict[str, Any]]:
         return self.get_route_live_snapshot(route_id)["buses"]
 
+    def get_bus_location_list(self, route_id: str) -> list[dict[str, Any]]:
+        payload = self._get_json(
+            f"{LOCATION_BASE_URL}/getBusLocationListv2",
+            {"serviceKey": self.service_key, "routeId": route_id, "format": "json"},
+        )
+        return normalize_bus_location_list(payload)
+
     def get_route_live_snapshot(self, route_id: str, recommendation_limit: int = 3) -> dict[str, Any]:
         self._ensure_live_snapshot_state()
+        stations = self.get_route_stations(route_id)
+        station_lookup = {str(station["station_id"]): station for station in stations}
+
+        try:
+            direct_locations = self.get_bus_location_list(route_id)
+        except Exception:
+            direct_locations = []
+
+        if direct_locations:
+            live_buses = [
+                enrich_direct_bus_location(location, station_lookup) for location in direct_locations
+            ]
+            recommendations = [
+                build_direct_location_recommendation(bus, station_lookup)
+                for bus in live_buses[:recommendation_limit]
+            ]
+            snapshot = {
+                "route_id": route_id,
+                "buses": live_buses,
+                "recommendations": [item for item in recommendations if item],
+            }
+            self._route_last_snapshot[route_id] = snapshot
+            return snapshot
+
         recommendations: list[dict[str, Any]] = []
         live_buses: dict[str, dict[str, Any]] = {}
-        stations = self.get_route_stations(route_id)
         station_limit = min(len(stations), getattr(self, "max_station_scans", 12))
         if station_limit <= 0:
             snapshot = {"route_id": route_id, "buses": [], "recommendations": []}
@@ -172,6 +203,65 @@ def normalize_station_list(payload: dict[str, Any]) -> list[dict[str, Any]]:
         }
         for item in items
     ]
+
+
+def normalize_bus_location_list(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    items = payload.get("response", {}).get("msgBody", {}).get("busLocationList", [])
+    if isinstance(items, dict):
+        items = [items]
+    return [item for item in items if item]
+
+
+def enrich_direct_bus_location(location: dict[str, Any], station_lookup: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    station_id = str(location.get("stationId", ""))
+    station = station_lookup.get(station_id, {})
+    station_name = station.get("station_name") or location.get("stationName") or station_id
+    station_seq = int(location.get("stationSeq") or station.get("station_seq") or 0)
+    return {
+        "vehicle_id": str(location.get("vehId", "")),
+        "plate_no": str(location.get("plateNo", "")),
+        "predict_time_min": None,
+        "location_no": 0,
+        "current_station_name": station_name,
+        "remain_seat_count": int(location.get("remainSeatCnt")) if location.get("remainSeatCnt") not in (None, "") else None,
+        "station_id": station_id,
+        "station_seq": station_seq,
+        "station_name": station_name,
+        "low_plate": location.get("lowPlate"),
+        "plate_type": location.get("plateType"),
+        "state_cd": location.get("stateCd"),
+    }
+
+
+def build_direct_location_recommendation(bus: dict[str, Any], station_lookup: dict[str, dict[str, Any]]) -> dict[str, Any] | None:
+    station = station_lookup.get(str(bus.get("station_id")), {})
+    if not station:
+        return None
+    return {
+        **station,
+        "arrival": {
+            "route_id": str(bus.get("route_id", "")),
+            "station_id": str(bus.get("station_id", "")),
+            "sta_order": int(bus.get("station_seq") or 0),
+            "flag": "RUN",
+            "predict_time_min": bus.get("predict_time_min"),
+            "location_no": bus.get("location_no"),
+            "plate_no": bus.get("plate_no", ""),
+            "current_station_name": bus.get("current_station_name", ""),
+            "remain_seat_count": bus.get("remain_seat_count"),
+            "result_message": "버스위치정보 직접조회",
+            "buses": [
+                {
+                    "vehicle_id": bus.get("vehicle_id", ""),
+                    "plate_no": bus.get("plate_no", ""),
+                    "predict_time_min": bus.get("predict_time_min"),
+                    "location_no": bus.get("location_no"),
+                    "current_station_name": bus.get("current_station_name", ""),
+                    "remain_seat_count": bus.get("remain_seat_count"),
+                }
+            ],
+        },
+    }
 
 
 def has_live_position(arrival: dict[str, Any]) -> bool:
