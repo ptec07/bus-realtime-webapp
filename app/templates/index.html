@@ -242,6 +242,8 @@
   let currentTimelineArrival = null;
   let currentSelectedStationId = null;
   let currentLiveBuses = [];
+  let currentLiveBusesLoaded = false;
+  let currentRecommendationsLoaded = false;
 
   function escapeHtml(text) {
     return String(text ?? '').replace(/[&<>\"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -278,6 +280,34 @@
     if (minutes === null || minutes === undefined) return '도착시간 계산 중';
     if (minutes <= 0) return '곧 도착';
     return `${minutes}분후 도착`;
+  }
+
+  function liveDataLoadingComplete() {
+    return currentLiveBusesLoaded && currentRecommendationsLoaded;
+  }
+
+  function updateTimelineSummary() {
+    if (!currentStations.length) {
+      timelineSummary.textContent = '노선을 선택하면 타임라인이 표시돼.';
+      return;
+    }
+
+    if (currentLiveBuses.length) {
+      timelineSummary.textContent = `현재 운행 중 버스 ${currentLiveBuses.length}대를 표시 중이야.`;
+      return;
+    }
+
+    if (currentTimelineArrival && currentTimelineArrival.current_station_name) {
+      timelineSummary.textContent = `${currentTimelineArrival.current_station_name} 기준으로 도착시간을 계산했어.`;
+      return;
+    }
+
+    if (liveDataLoadingComplete()) {
+      timelineSummary.textContent = '현재 실시간 차량 정보를 찾지 못했어.';
+      return;
+    }
+
+    timelineSummary.textContent = `${currentStations.length}개 정류장을 먼저 표시했어. 실시간 위치는 이어서 불러오는 중이야.`;
   }
 
   function computeTimelineState(arrival) {
@@ -327,7 +357,9 @@
 
   function stationArrivalLabel(station, timelineState) {
     if (!timelineState || timelineState.currentStationSeq === null) {
-      return '실시간 차량 위치를 찾는 중';
+      return liveDataLoadingComplete()
+        ? '실시간 위치 확인이 끝났지만 표시할 차량이 아직 없어.'
+        : '실시간 차량 위치를 찾는 중';
     }
     const seq = Number(station.station_seq);
     if (seq < timelineState.currentStationSeq) return '이미 지나간 정류장';
@@ -423,6 +455,9 @@
       throw new Error(`live-buses ${res.status}`);
     }
     currentLiveBuses = await res.json();
+    currentLiveBusesLoaded = true;
+    updateTimelineSummary();
+    renderTimeline();
   }
 
   async function loadRouteTimeline(routeId) {
@@ -432,13 +467,8 @@
     }
     const recommendations = await res.json();
     currentTimelineArrival = recommendations.length ? recommendations[0].arrival : null;
-    if (currentLiveBuses.length) {
-      timelineSummary.textContent = `현재 운행 중 버스 ${currentLiveBuses.length}대를 표시 중이야.`;
-    } else if (currentTimelineArrival && currentTimelineArrival.current_station_name) {
-      timelineSummary.textContent = `${currentTimelineArrival.current_station_name} 기준으로 도착시간을 계산했어.`;
-    } else {
-      timelineSummary.textContent = '실시간 차량 위치를 찾는 중이야.';
-    }
+    currentRecommendationsLoaded = true;
+    updateTimelineSummary();
     renderTimeline();
   }
 
@@ -447,10 +477,12 @@
     currentSelectedStationId = null;
     currentTimelineArrival = null;
     currentLiveBuses = [];
+    currentLiveBusesLoaded = false;
+    currentRecommendationsLoaded = false;
     selectedRoute.textContent = `${route.route_name} | ${route.start_station} → ${route.end_station}`;
     const res = await fetch(`/api/routes/${route.route_id}/stations`);
     currentStations = await res.json();
-    timelineSummary.textContent = `${currentStations.length}개 정류장을 먼저 표시했어. 실시간 위치는 이어서 불러오는 중이야.`;
+    updateTimelineSummary();
     renderTimeline();
 
     const results = await Promise.allSettled([
@@ -458,10 +490,21 @@
       loadRouteTimeline(route.route_id),
     ]);
 
+    if (results[0].status === 'rejected') {
+      currentLiveBusesLoaded = true;
+    }
+    if (results[1].status === 'rejected') {
+      currentRecommendationsLoaded = true;
+    }
+
     if (results.every((result) => result.status === 'rejected')) {
       timelineSummary.textContent = `${currentStations.length}개 정류장을 표시했어. 실시간 위치는 잠시 후 다시 시도해줘.`;
       renderTimeline();
+      return;
     }
+
+    updateTimelineSummary();
+    renderTimeline();
   }
 
   async function loadArrival(stationId, staOrder) {

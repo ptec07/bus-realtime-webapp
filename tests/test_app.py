@@ -170,6 +170,14 @@ def test_index_page_contains_timeline_and_refresh_scripts():
     assert "loadRouteTimeline" in response.text
 
 
+def test_index_page_contains_empty_live_data_completion_message():
+    response = make_client().get("/")
+
+    assert response.status_code == 200
+    assert "현재 실시간 차량 정보를 찾지 못했어." in response.text
+    assert "실시간 위치 확인이 끝났지만 표시할 차량이 아직 없어." in response.text
+
+
 def test_routes_api_returns_route_matches():
     response = make_client().get("/api/routes", params={"query": "1001"})
 
