@@ -240,6 +240,7 @@
   let currentRoute = null;
   let currentStations = [];
   let currentTimelineArrival = null;
+  let currentTimelineEtaBySeq = {};
   let currentSelectedStationId = null;
   let currentLiveBuses = [];
   let currentLiveBusesLoaded = false;
@@ -313,69 +314,41 @@
     timelineSummary.textContent = `${currentStations.length}개 정류장을 먼저 표시했어. 실시간 위치는 이어서 불러오는 중이야.`;
   }
 
-  function computeTimelineState(arrival) {
-    if (!arrival || !currentStations.length) {
-      return { currentStationSeq: null, perStopMinutes: null, estimatedMinutesBySeq: new Map() };
-    }
-
-    const matchedStation = findStationByLiveName(arrival.current_station_name);
-    let currentStationSeq = matchedStation ? Number(matchedStation.station_seq) : null;
-
-    if (currentStationSeq === null && arrival.sta_order && arrival.location_no !== null && arrival.location_no !== undefined) {
-      const guessedSeq = Number(arrival.sta_order) - Number(arrival.location_no);
-      currentStationSeq = Number.isFinite(guessedSeq) && guessedSeq > 0 ? guessedSeq : null;
-    }
-
-    let perStopMinutes = null;
-    if (arrival.predict_time_min !== null && arrival.predict_time_min !== undefined && arrival.location_no) {
-      const raw = Number(arrival.predict_time_min) / Number(arrival.location_no);
-      if (Number.isFinite(raw) && raw > 0) {
-        perStopMinutes = raw;
-      }
-    }
+  function computeTimelineState() {
+    const currentBusStationSeqs = new Set(
+      currentLiveBuses
+        .map((bus) => Number(bus.station_seq))
+        .filter((seq) => Number.isFinite(seq) && seq > 0)
+    );
 
     const estimatedMinutesBySeq = new Map();
-    if (currentStationSeq !== null) {
-      currentStations.forEach((station) => {
-        const seq = Number(station.station_seq);
-        if (seq <= currentStationSeq) {
-          estimatedMinutesBySeq.set(seq, null);
-          return;
-        }
-        const steps = seq - currentStationSeq;
-        if (perStopMinutes !== null) {
-          estimatedMinutesBySeq.set(seq, Math.max(1, Math.round(steps * perStopMinutes)));
-          return;
-        }
-        if (arrival.sta_order && seq === Number(arrival.sta_order) && arrival.predict_time_min !== null && arrival.predict_time_min !== undefined) {
-          estimatedMinutesBySeq.set(seq, Number(arrival.predict_time_min));
-          return;
-        }
-        estimatedMinutesBySeq.set(seq, null);
-      });
-    }
+    Object.entries(currentTimelineEtaBySeq || {}).forEach(([seq, eta]) => {
+      const seqNumber = Number(seq);
+      const etaNumber = Number(eta);
+      if (!Number.isFinite(seqNumber) || !Number.isFinite(etaNumber)) return;
+      estimatedMinutesBySeq.set(seqNumber, etaNumber);
+    });
 
-    return { currentStationSeq, perStopMinutes, estimatedMinutesBySeq };
+    return { currentBusStationSeqs, estimatedMinutesBySeq };
   }
 
   function stationArrivalLabel(station, timelineState) {
-    if (!timelineState || timelineState.currentStationSeq === null) {
-      return liveDataLoadingComplete()
-        ? '실시간 위치 확인이 끝났지만 표시할 차량이 아직 없어.'
-        : '실시간 차량 위치를 찾는 중';
-    }
     const seq = Number(station.station_seq);
-    if (seq < timelineState.currentStationSeq) return '이미 지나간 정류장';
-    if (seq === timelineState.currentStationSeq) return '현재 버스 위치';
-    return formatMinuteLabel(timelineState.estimatedMinutesBySeq.get(seq));
+    if (timelineState?.currentBusStationSeqs?.has(seq)) {
+      return '현재 버스 위치';
+    }
+    if (timelineState?.estimatedMinutesBySeq?.has(seq)) {
+      return formatMinuteLabel(timelineState.estimatedMinutesBySeq.get(seq));
+    }
+    return liveDataLoadingComplete()
+      ? '실시간 위치 확인이 끝났지만 표시할 차량이 아직 없어.'
+      : '실시간 차량 위치를 찾는 중';
   }
 
   function stationStatusClass(station, timelineState) {
-    if (!timelineState || timelineState.currentStationSeq === null) return '';
     const seq = Number(station.station_seq);
-    if (seq < timelineState.currentStationSeq) return 'passed';
-    if (seq === timelineState.currentStationSeq) return 'current';
-    return 'upcoming';
+    if (timelineState?.currentBusStationSeqs?.has(seq)) return 'current';
+    return '';
   }
 
   function renderBusMarker(station) {
@@ -409,7 +382,7 @@
       return;
     }
 
-    const timelineState = computeTimelineState(currentTimelineArrival);
+    const timelineState = computeTimelineState();
     routeTimeline.innerHTML = filteredStations.map((station, index) => {
       const stationClass = stationStatusClass(station, timelineState);
       const activeClass = currentSelectedStationId === String(station.station_id) ? ' active' : '';
@@ -501,6 +474,7 @@
         return;
       }
       currentLiveBuses = snapshot.buses || [];
+      currentTimelineEtaBySeq = snapshot.timeline_eta_by_seq || {};
       currentTimelineArrival = snapshot.recommendations?.length ? snapshot.recommendations[0].arrival : null;
       currentLiveBusesLoaded = true;
       currentRecommendationsLoaded = true;
@@ -533,6 +507,7 @@
     currentRoute = route;
     currentSelectedStationId = null;
     currentTimelineArrival = null;
+    currentTimelineEtaBySeq = {};
     currentLiveBuses = [];
     currentLiveBusesLoaded = false;
     currentRecommendationsLoaded = false;

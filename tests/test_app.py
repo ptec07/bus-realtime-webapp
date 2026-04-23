@@ -139,6 +139,12 @@ class StubClient:
             "route_id": route_id,
             "buses": self.get_route_live_buses(route_id),
             "recommendations": self.get_recommended_stations(route_id, limit=recommendation_limit),
+            "timeline_eta_by_seq": {
+                "1": 0,
+                "2": 2,
+                "3": 4,
+                "4": 6,
+            },
         }
 
 
@@ -174,6 +180,7 @@ def test_index_page_contains_timeline_and_refresh_scripts():
     assert "stopLivePolling" in response.text
     assert "scheduleNextLivePoll" in response.text
     assert "clearRouteQuery" in response.text
+    assert "currentTimelineEtaBySeq" in response.text
     assert "renderTimeline();" in response.text
     assert "window.location.reload()" not in response.text
     assert "setTimeout(() => fetchLiveSnapshot(routeId), 1500)" in response.text
@@ -234,6 +241,8 @@ def test_route_live_snapshot_api_returns_buses_and_recommendations():
     assert payload["route_id"] == "222000107"
     assert len(payload["buses"]) == 2
     assert payload["recommendations"][0]["station_name"] == "퇴계원IC진입(경유)"
+    assert payload["timeline_eta_by_seq"]["1"] == 0
+    assert payload["timeline_eta_by_seq"]["2"] == 2
 
 
 def test_arrival_api_returns_live_bus_payload():

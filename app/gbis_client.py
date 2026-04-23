@@ -113,6 +113,11 @@ class GbisClient:
                 "route_id": route_id,
                 "buses": live_buses,
                 "recommendations": [item for item in recommendations if item],
+                "timeline_eta_by_seq": build_timeline_eta_by_seq(
+                    stations,
+                    live_buses,
+                    average_speed_kmh=getattr(self, "average_speed_kmh", 30.0),
+                ),
             }
             self._route_last_snapshot[route_id] = snapshot
             return snapshot
@@ -162,6 +167,11 @@ class GbisClient:
             ),
             "recommendations": recommendations,
         }
+        snapshot["timeline_eta_by_seq"] = build_timeline_eta_by_seq(
+            stations,
+            snapshot["buses"],
+            average_speed_kmh=getattr(self, "average_speed_kmh", 30.0),
+        )
         if snapshot["buses"] or snapshot["recommendations"]:
             self._route_last_snapshot[route_id] = snapshot
             return snapshot
@@ -453,6 +463,50 @@ def estimate_direct_bus_eta_minutes(
     speed = max(float(average_speed_kmh or 0), 1.0)
     minutes = ((end_km - start_km) / speed) * 60.0
     return max(1, round(minutes))
+
+
+def build_timeline_eta_by_seq(
+    stations: list[dict[str, Any]],
+    live_buses: list[dict[str, Any]],
+    average_speed_kmh: float = 30.0,
+) -> dict[str, int]:
+    timeline: dict[str, int] = {}
+    for bus in live_buses:
+        current_seq = derive_bus_current_station_seq(stations, bus)
+        if current_seq is None:
+            continue
+        for station in stations:
+            target_seq = int(station.get("station_seq") or 0)
+            if target_seq < current_seq:
+                continue
+            eta = estimate_direct_bus_eta_minutes(
+                stations,
+                current_station_seq=current_seq,
+                target_station_seq=target_seq,
+                average_speed_kmh=average_speed_kmh,
+            )
+            if eta is None:
+                continue
+            key = str(target_seq)
+            if key not in timeline or eta < timeline[key]:
+                timeline[key] = eta
+    return timeline
+
+
+def derive_bus_current_station_seq(stations: list[dict[str, Any]], bus: dict[str, Any]) -> int | None:
+    station_name = str(bus.get("current_station_name") or "").strip()
+    if station_name:
+        for station in stations:
+            if str(station.get("station_name") or "").strip() == station_name:
+                return int(station.get("station_seq") or 0)
+
+    seq = int(bus.get("station_seq") or 0)
+    if not seq:
+        return None
+    if bus.get("eta_source") == "arrival" and bus.get("location_no") not in (None, ""):
+        guessed = seq - int(bus.get("location_no") or 0)
+        return guessed if guessed > 0 else seq
+    return seq
 
 
 def build_cumulative_distance_km_by_seq(stations: list[dict[str, Any]]) -> dict[int, float]:

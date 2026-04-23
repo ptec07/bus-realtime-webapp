@@ -319,10 +319,11 @@ def test_get_route_live_snapshot_prefers_direct_bus_location_api_when_available(
 
     snapshot = client.get_route_live_snapshot('222000107', recommendation_limit=2)
 
-    assert snapshot['buses'][0]['plate_no'] == '경기70아1234'
-    assert snapshot['buses'][0]['station_id'] == '2'
+    assert snapshot['route_id'] == '222000107'
+    assert len(snapshot['buses']) == 1
     assert snapshot['recommendations'][0]['station_id'] == '3'
     assert snapshot['recommendations'][0]['arrival']['flag'] == 'ESTIMATE'
+    assert snapshot['timeline_eta_by_seq'] == {'2': 0, '3': 28}
 
 
 def test_get_route_live_snapshot_enriches_direct_bus_locations_with_arrival_eta():
@@ -429,6 +430,59 @@ def test_get_route_live_snapshot_estimates_eta_from_station_distances_when_arriv
     assert snapshot['recommendations'][0]['arrival']['predict_time_min'] == 4
     assert snapshot['recommendations'][0]['arrival']['location_no'] == 2
     assert snapshot['recommendations'][0]['arrival']['current_station_name'] == 'B'
+    assert snapshot['timeline_eta_by_seq'] == {'2': 0, '3': 2, '4': 4}
+
+
+def test_get_route_live_snapshot_builds_timeline_eta_from_nearest_bus_instead_of_first_recommendation_only():
+    class FakeClient(GbisClient):
+        def __init__(self):
+            self.scan_chunk_size = 3
+            self.max_station_scans = 12
+            self.average_speed_kmh = 30
+            self._route_scan_offsets = {}
+            self._route_last_snapshot = {}
+
+        def get_route_stations(self, route_id: str):
+            return [
+                {'station_id': '1', 'station_name': 'A', 'station_seq': 1, 'x': 127.0, 'y': 37.0},
+                {'station_id': '2', 'station_name': 'B', 'station_seq': 2, 'x': 127.0, 'y': 37.009},
+                {'station_id': '3', 'station_name': 'C', 'station_seq': 3, 'x': 127.0, 'y': 37.018},
+                {'station_id': '4', 'station_name': 'D', 'station_seq': 4, 'x': 127.0, 'y': 37.027},
+                {'station_id': '5', 'station_name': 'E', 'station_seq': 5, 'x': 127.0, 'y': 37.036},
+            ]
+
+        def get_bus_location_list(self, route_id: str):
+            return [
+                {
+                    'vehId': 'bus-1',
+                    'plateNo': '경기70아1111',
+                    'stationId': '1',
+                    'stationSeq': 1,
+                    'stationName': 'A',
+                    'remainSeatCnt': 9,
+                    'stateCd': 2,
+                },
+                {
+                    'vehId': 'bus-2',
+                    'plateNo': '경기70아2222',
+                    'stationId': '4',
+                    'stationSeq': 4,
+                    'stationName': 'D',
+                    'remainSeatCnt': 9,
+                    'stateCd': 2,
+                },
+            ]
+
+        def get_arrival(self, route_id: str, station_id: str, sta_order: int):
+            return None
+
+    client = FakeClient()
+
+    snapshot = client.get_route_live_snapshot('222000107', recommendation_limit=2)
+
+    assert snapshot['timeline_eta_by_seq']['5'] == 2
+    assert snapshot['timeline_eta_by_seq']['2'] == 2
+    assert snapshot['timeline_eta_by_seq']['4'] == 0
 
 
 def test_get_live_or_estimated_arrival_falls_back_to_direct_location_distance_estimate():
