@@ -244,6 +244,9 @@
   let currentLiveBuses = [];
   let currentLiveBusesLoaded = false;
   let currentRecommendationsLoaded = false;
+  let currentLivePollTimer = null;
+  let currentLiveRequestToken = 0;
+  let currentLiveFetchInFlight = false;
 
   function escapeHtml(text) {
     return String(text ?? '').replace(/[&<>\"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -449,30 +452,84 @@
     });
   }
 
-  async function loadLiveBuses(routeId) {
-    const res = await fetch(`/api/routes/${routeId}/live-buses`);
-    if (!res.ok) {
-      throw new Error(`live-buses ${res.status}`);
+  function scheduleNextLivePoll(routeId, delayMs = 5000) {
+    if (!currentRoute || currentRoute.route_id !== routeId) return;
+    if (currentLivePollTimer) {
+      clearTimeout(currentLivePollTimer);
     }
-    currentLiveBuses = await res.json();
-    currentLiveBusesLoaded = true;
-    updateTimelineSummary();
-    renderTimeline();
+    if (delayMs === 1500) {
+      currentLivePollTimer = setTimeout(() => fetchLiveSnapshot(routeId), 1500);
+      return;
+    }
+    currentLivePollTimer = setTimeout(() => fetchLiveSnapshot(routeId), delayMs);
   }
 
-  async function loadRouteTimeline(routeId) {
-    const res = await fetch(`/api/routes/${routeId}/recommended-stations`);
-    if (!res.ok) {
-      throw new Error(`recommended-stations ${res.status}`);
+  function stopLivePolling() {
+    if (currentLivePollTimer) {
+      clearTimeout(currentLivePollTimer);
+      currentLivePollTimer = null;
     }
-    const recommendations = await res.json();
-    currentTimelineArrival = recommendations.length ? recommendations[0].arrival : null;
-    currentRecommendationsLoaded = true;
-    updateTimelineSummary();
-    renderTimeline();
+    currentLiveRequestToken += 1;
+    currentLiveFetchInFlight = false;
+  }
+
+  async function fetchLiveSnapshot(routeId, options = {}) {
+    const { foreground = false } = options;
+    if (!currentRoute || currentRoute.route_id !== routeId) return;
+    if (currentLiveFetchInFlight) {
+      scheduleNextLivePoll(routeId, foreground ? 1500 : 5000);
+      return;
+    }
+
+    if (foreground) {
+      currentLiveBusesLoaded = false;
+      currentRecommendationsLoaded = false;
+      updateTimelineSummary();
+      renderTimeline();
+    }
+
+    const requestToken = ++currentLiveRequestToken;
+    currentLiveFetchInFlight = true;
+
+    try {
+      const res = await fetch(`/api/routes/${routeId}/live-snapshot`);
+      if (!res.ok) {
+        throw new Error(`live-snapshot ${res.status}`);
+      }
+      const snapshot = await res.json();
+      if (!currentRoute || currentRoute.route_id !== routeId || requestToken !== currentLiveRequestToken) {
+        return;
+      }
+      currentLiveBuses = snapshot.buses || [];
+      currentTimelineArrival = snapshot.recommendations?.length ? snapshot.recommendations[0].arrival : null;
+      currentLiveBusesLoaded = true;
+      currentRecommendationsLoaded = true;
+      updateTimelineSummary();
+      renderTimeline();
+    } catch (error) {
+      if (!currentRoute || currentRoute.route_id !== routeId || requestToken !== currentLiveRequestToken) {
+        return;
+      }
+      currentLiveBusesLoaded = true;
+      currentRecommendationsLoaded = true;
+      updateTimelineSummary();
+      renderTimeline();
+    } finally {
+      if (requestToken !== currentLiveRequestToken) {
+        return;
+      }
+      currentLiveFetchInFlight = false;
+      scheduleNextLivePoll(routeId, foreground ? 1500 : 5000);
+    }
+  }
+
+  function startLivePolling(routeId, options = {}) {
+    stopLivePolling();
+    fetchLiveSnapshot(routeId, options);
   }
 
   async function loadStations(route) {
+    stopLivePolling();
     currentRoute = route;
     currentSelectedStationId = null;
     currentTimelineArrival = null;
@@ -485,26 +542,7 @@
     updateTimelineSummary();
     renderTimeline();
 
-    const results = await Promise.allSettled([
-      loadLiveBuses(route.route_id),
-      loadRouteTimeline(route.route_id),
-    ]);
-
-    if (results[0].status === 'rejected') {
-      currentLiveBusesLoaded = true;
-    }
-    if (results[1].status === 'rejected') {
-      currentRecommendationsLoaded = true;
-    }
-
-    if (results.every((result) => result.status === 'rejected')) {
-      timelineSummary.textContent = `${currentStations.length}개 정류장을 표시했어. 실시간 위치는 잠시 후 다시 시도해줘.`;
-      renderTimeline();
-      return;
-    }
-
-    updateTimelineSummary();
-    renderTimeline();
+    startLivePolling(route.route_id, { foreground: true });
   }
 
   async function loadArrival(stationId, staOrder) {
@@ -533,7 +571,13 @@
     renderTimeline();
   }
 
-  routeRefresh.addEventListener('click', () => window.location.reload());
+  routeRefresh.addEventListener('click', () => {
+    if (!currentRoute) {
+      searchRoutes();
+      return;
+    }
+    fetchLiveSnapshot(currentRoute.route_id, { foreground: true });
+  });
   routeQueryClear.addEventListener('click', clearRouteQuery);
   routeBtn.addEventListener('click', searchRoutes);
   stationFilter.addEventListener('input', renderTimeline);

@@ -45,6 +45,10 @@ def create_app(client: GbisClient | None = None) -> FastAPI:
     def route_live_buses(route_id: str):
         return get_client().get_route_live_buses(route_id)
 
+    @app.get("/api/routes/{route_id}/live-snapshot")
+    def route_live_snapshot(route_id: str, recommendation_limit: int = 3):
+        return get_client().get_route_live_snapshot(route_id, recommendation_limit=recommendation_limit)
+
     @app.get("/api/arrival")
     def arrival(route_id: str | None = None, station_id: str | None = None, sta_order: int | None = None):
         if not route_id or not station_id or sta_order is None:

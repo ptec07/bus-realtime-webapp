@@ -36,25 +36,15 @@ class GbisClient:
         return normalize_station_list(payload)
 
     def get_recommended_stations(self, route_id: str, limit: int = 3) -> list[dict[str, Any]]:
-        recommendations: list[dict[str, Any]] = []
-        for index, station in enumerate(self.get_route_stations(route_id), start=1):
-            if index > getattr(self, "max_station_scans", 12):
-                break
-            try:
-                arrival = self.get_arrival(route_id, station["station_id"], station["station_seq"])
-            except Exception:
-                continue
-            if not arrival or not has_live_position(arrival):
-                continue
-            recommendations.append({**station, "arrival": arrival})
-            if len(recommendations) >= limit:
-                break
-        return recommendations
+        return self.get_route_live_snapshot(route_id, recommendation_limit=limit)["recommendations"]
 
     def get_route_live_buses(self, route_id: str) -> list[dict[str, Any]]:
+        return self.get_route_live_snapshot(route_id)["buses"]
+
+    def get_route_live_snapshot(self, route_id: str, recommendation_limit: int = 3) -> dict[str, Any]:
+        recommendations: list[dict[str, Any]] = []
         live_buses: dict[str, dict[str, Any]] = {}
-        stations = self.get_route_stations(route_id)
-        for index, station in enumerate(stations, start=1):
+        for index, station in enumerate(self.get_route_stations(route_id), start=1):
             if index > getattr(self, "max_station_scans", 12):
                 break
             try:
@@ -63,6 +53,8 @@ class GbisClient:
                 continue
             if not arrival:
                 continue
+            if has_live_position(arrival) and len(recommendations) < recommendation_limit:
+                recommendations.append({**station, "arrival": arrival})
             for bus in arrival.get("buses", []):
                 bus_key = str(bus.get("vehicle_id") or bus.get("plate_no") or f"{station['station_id']}:{bus.get('current_station_name', '')}")
                 if bus_key in live_buses:
@@ -73,14 +65,18 @@ class GbisClient:
                     "station_seq": station["station_seq"],
                     "station_name": station["station_name"],
                 }
-        return sorted(
-            live_buses.values(),
-            key=lambda bus: (
-                int(bus.get("station_seq") or 0),
-                int(bus.get("location_no") or 10**6),
-                str(bus.get("plate_no") or ""),
+        return {
+            "route_id": route_id,
+            "buses": sorted(
+                live_buses.values(),
+                key=lambda bus: (
+                    int(bus.get("station_seq") or 0),
+                    int(bus.get("location_no") or 10**6),
+                    str(bus.get("plate_no") or ""),
+                ),
             ),
-        )
+            "recommendations": recommendations,
+        }
 
     def get_arrival(self, route_id: str, station_id: str, sta_order: int) -> dict[str, Any] | None:
         payload = self._get_json(

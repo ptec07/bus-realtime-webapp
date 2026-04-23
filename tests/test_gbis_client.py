@@ -167,6 +167,56 @@ def test_get_route_live_buses_stops_after_scan_budget():
     assert client.calls == ["1", "2"]
 
 
+def test_get_route_live_snapshot_scans_stations_once_for_buses_and_recommendations():
+    class FakeClient(GbisClient):
+        def __init__(self):
+            self.calls = []
+            self.max_station_scans = 4
+
+        def get_route_stations(self, route_id: str):
+            return [
+                {"station_id": "1", "station_name": "A", "station_seq": 1, "x": 127.1, "y": 37.1},
+                {"station_id": "2", "station_name": "B", "station_seq": 2, "x": 127.2, "y": 37.2},
+                {"station_id": "3", "station_name": "C", "station_seq": 3, "x": 127.3, "y": 37.3},
+            ]
+
+        def get_arrival(self, route_id: str, station_id: str, sta_order: int):
+            self.calls.append(station_id)
+            if station_id == "2":
+                return {
+                    "route_id": route_id,
+                    "station_id": station_id,
+                    "sta_order": sta_order,
+                    "flag": "RUN",
+                    "predict_time_min": 2,
+                    "location_no": 1,
+                    "plate_no": "경기70아1234",
+                    "current_station_name": "B",
+                    "remain_seat_count": 12,
+                    "result_message": "정상적으로 처리되었습니다.",
+                    "buses": [
+                        {
+                            "vehicle_id": "bus-1",
+                            "plate_no": "경기70아1234",
+                            "predict_time_min": 2,
+                            "location_no": 1,
+                            "current_station_name": "B",
+                            "remain_seat_count": 12,
+                        }
+                    ],
+                }
+            return None
+
+    client = FakeClient()
+
+    snapshot = client.get_route_live_snapshot("222000107", recommendation_limit=2)
+
+    assert snapshot["route_id"] == "222000107"
+    assert len(snapshot["buses"]) == 1
+    assert snapshot["recommendations"][0]["station_id"] == "2"
+    assert client.calls == ["1", "2", "3"]
+
+
 def test_normalize_route_list_returns_simplified_routes():
     payload = {
         "response": {

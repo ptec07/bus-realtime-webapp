@@ -134,6 +134,13 @@ class StubClient:
             },
         ]
 
+    def get_route_live_snapshot(self, route_id: str, recommendation_limit: int = 3):
+        return {
+            "route_id": route_id,
+            "buses": self.get_route_live_buses(route_id),
+            "recommendations": self.get_recommended_stations(route_id, limit=recommendation_limit),
+        }
+
 
 def make_client():
     app = create_app(client=StubClient())
@@ -162,12 +169,14 @@ def test_index_page_contains_timeline_and_refresh_scripts():
     assert "computeTimelineState" in response.text
     assert "renderTimeline" in response.text
     assert "renderBusMarker" in response.text
-    assert "loadLiveBuses" in response.text
+    assert "fetchLiveSnapshot" in response.text
+    assert "startLivePolling" in response.text
+    assert "stopLivePolling" in response.text
+    assert "scheduleNextLivePoll" in response.text
     assert "clearRouteQuery" in response.text
-    assert "Promise.allSettled" in response.text
     assert "renderTimeline();" in response.text
-    assert "window.location.reload()" in response.text
-    assert "loadRouteTimeline" in response.text
+    assert "window.location.reload()" not in response.text
+    assert "setTimeout(() => fetchLiveSnapshot(routeId), 1500)" in response.text
 
 
 def test_index_page_contains_empty_live_data_completion_message():
@@ -215,6 +224,16 @@ def test_route_live_buses_api_returns_multiple_running_buses():
     assert len(payload) == 2
     assert payload[0]["plate_no"] == "경기70아1234"
     assert payload[1]["plate_no"] == "경기70아5678"
+
+
+def test_route_live_snapshot_api_returns_buses_and_recommendations():
+    response = make_client().get("/api/routes/222000107/live-snapshot")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["route_id"] == "222000107"
+    assert len(payload["buses"]) == 2
+    assert payload["recommendations"][0]["station_name"] == "퇴계원IC진입(경유)"
 
 
 def test_arrival_api_returns_live_bus_payload():
