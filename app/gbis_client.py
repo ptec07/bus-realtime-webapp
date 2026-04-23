@@ -16,10 +16,21 @@ class GbisApiError(RuntimeError):
 
 
 class GbisClient:
-    def __init__(self, service_key: str | None = None, timeout: int = 20, max_station_scans: int = 12):
+    def __init__(self, service_key: str | None = None, timeout: int = 20, max_station_scans: int = 12, scan_chunk_size: int = 3):
         self.service_key = service_key or load_service_key()
         self.timeout = timeout
         self.max_station_scans = max_station_scans
+        self.scan_chunk_size = scan_chunk_size
+        self._route_scan_offsets: dict[str, int] = {}
+        self._route_last_snapshot: dict[str, dict[str, Any]] = {}
+
+    def _ensure_live_snapshot_state(self) -> None:
+        if not hasattr(self, "scan_chunk_size"):
+            self.scan_chunk_size = 3
+        if not hasattr(self, "_route_scan_offsets"):
+            self._route_scan_offsets = {}
+        if not hasattr(self, "_route_last_snapshot"):
+            self._route_last_snapshot = {}
 
     def search_routes(self, query: str) -> list[dict[str, Any]]:
         payload = self._get_json(
@@ -42,11 +53,23 @@ class GbisClient:
         return self.get_route_live_snapshot(route_id)["buses"]
 
     def get_route_live_snapshot(self, route_id: str, recommendation_limit: int = 3) -> dict[str, Any]:
+        self._ensure_live_snapshot_state()
         recommendations: list[dict[str, Any]] = []
         live_buses: dict[str, dict[str, Any]] = {}
-        for index, station in enumerate(self.get_route_stations(route_id), start=1):
-            if index > getattr(self, "max_station_scans", 12):
-                break
+        stations = self.get_route_stations(route_id)
+        station_limit = min(len(stations), getattr(self, "max_station_scans", 12))
+        if station_limit <= 0:
+            snapshot = {"route_id": route_id, "buses": [], "recommendations": []}
+            self._route_last_snapshot[route_id] = snapshot
+            return snapshot
+
+        scan_size = max(1, min(getattr(self, "scan_chunk_size", 3), station_limit))
+        start_index = self._route_scan_offsets.get(route_id, 0) % station_limit
+        indices = [((start_index + offset) % station_limit) for offset in range(scan_size)]
+        self._route_scan_offsets[route_id] = (start_index + scan_size) % station_limit
+
+        for index in indices:
+            station = stations[index]
             try:
                 arrival = self.get_arrival(route_id, station["station_id"], station["station_seq"])
             except Exception:
@@ -65,7 +88,7 @@ class GbisClient:
                     "station_seq": station["station_seq"],
                     "station_name": station["station_name"],
                 }
-        return {
+        snapshot = {
             "route_id": route_id,
             "buses": sorted(
                 live_buses.values(),
@@ -77,6 +100,10 @@ class GbisClient:
             ),
             "recommendations": recommendations,
         }
+        if snapshot["buses"] or snapshot["recommendations"]:
+            self._route_last_snapshot[route_id] = snapshot
+            return snapshot
+        return self._route_last_snapshot.get(route_id, snapshot)
 
     def get_arrival(self, route_id: str, station_id: str, sta_order: int) -> dict[str, Any] | None:
         payload = self._get_json(

@@ -172,6 +172,9 @@ def test_get_route_live_snapshot_scans_stations_once_for_buses_and_recommendatio
         def __init__(self):
             self.calls = []
             self.max_station_scans = 4
+            self.scan_chunk_size = 4
+            self._route_scan_offsets = {}
+            self._route_last_snapshot = {}
 
         def get_route_stations(self, route_id: str):
             return [
@@ -215,6 +218,67 @@ def test_get_route_live_snapshot_scans_stations_once_for_buses_and_recommendatio
     assert len(snapshot["buses"]) == 1
     assert snapshot["recommendations"][0]["station_id"] == "2"
     assert client.calls == ["1", "2", "3"]
+
+
+def test_get_route_live_snapshot_rotates_scan_window_and_keeps_last_successful_result():
+    class FakeClient(GbisClient):
+        def __init__(self):
+            self.calls = []
+            self.max_station_scans = 4
+            self.scan_chunk_size = 2
+            self._route_scan_offsets = {}
+            self._route_last_snapshot = {}
+            self.responses = {
+                '1': None,
+                '2': None,
+                '3': {
+                    'route_id': '222000107',
+                    'station_id': '3',
+                    'sta_order': 3,
+                    'flag': 'RUN',
+                    'predict_time_min': 1,
+                    'location_no': 1,
+                    'plate_no': '경기70아9999',
+                    'current_station_name': 'C',
+                    'remain_seat_count': 7,
+                    'result_message': '정상적으로 처리되었습니다.',
+                    'buses': [
+                        {
+                            'vehicle_id': 'bus-9',
+                            'plate_no': '경기70아9999',
+                            'predict_time_min': 1,
+                            'location_no': 1,
+                            'current_station_name': 'C',
+                            'remain_seat_count': 7,
+                        }
+                    ],
+                },
+                '4': None,
+            }
+
+        def get_route_stations(self, route_id: str):
+            return [
+                {'station_id': '1', 'station_name': 'A', 'station_seq': 1, 'x': 127.1, 'y': 37.1},
+                {'station_id': '2', 'station_name': 'B', 'station_seq': 2, 'x': 127.2, 'y': 37.2},
+                {'station_id': '3', 'station_name': 'C', 'station_seq': 3, 'x': 127.3, 'y': 37.3},
+                {'station_id': '4', 'station_name': 'D', 'station_seq': 4, 'x': 127.4, 'y': 37.4},
+            ]
+
+        def get_arrival(self, route_id: str, station_id: str, sta_order: int):
+            self.calls.append(station_id)
+            return self.responses[station_id]
+
+    client = FakeClient()
+
+    first = client.get_route_live_snapshot('222000107', recommendation_limit=2)
+    second = client.get_route_live_snapshot('222000107', recommendation_limit=2)
+    third = client.get_route_live_snapshot('222000107', recommendation_limit=2)
+
+    assert first['buses'] == []
+    assert second['buses'][0]['plate_no'] == '경기70아9999'
+    assert second['recommendations'][0]['station_id'] == '3'
+    assert third['buses'][0]['plate_no'] == '경기70아9999'
+    assert client.calls == ['1', '2', '3', '4', '1', '2']
 
 
 def test_normalize_route_list_returns_simplified_routes():
