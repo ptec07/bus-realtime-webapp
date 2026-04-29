@@ -479,8 +479,9 @@ def build_timeline_eta_by_seq(
             target_seq = int(station.get("station_seq") or 0)
             if target_seq < current_seq:
                 continue
-            eta = estimate_direct_bus_eta_minutes(
+            eta = estimate_timeline_eta_for_bus(
                 stations,
+                bus,
                 current_station_seq=current_seq,
                 target_station_seq=target_seq,
                 average_speed_kmh=average_speed_kmh,
@@ -491,6 +492,53 @@ def build_timeline_eta_by_seq(
             if key not in timeline or eta < timeline[key]:
                 timeline[key] = eta
     return timeline
+
+
+def estimate_timeline_eta_for_bus(
+    stations: list[dict[str, Any]],
+    bus: dict[str, Any],
+    current_station_seq: int,
+    target_station_seq: int,
+    average_speed_kmh: float = 30.0,
+) -> int | None:
+    anchor_seq = int(bus.get("station_seq") or 0)
+    anchor_eta = bus.get("predict_time_min")
+    if bus.get("eta_source") == "arrival" and anchor_seq > 0 and anchor_eta not in (None, ""):
+        anchor_eta = int(anchor_eta)
+        if target_station_seq == anchor_seq:
+            return anchor_eta
+        if target_station_seq > anchor_seq:
+            tail_eta = estimate_direct_bus_eta_minutes(
+                stations,
+                current_station_seq=anchor_seq,
+                target_station_seq=target_station_seq,
+                average_speed_kmh=average_speed_kmh,
+            )
+            if tail_eta is None:
+                return anchor_eta
+            return anchor_eta + tail_eta
+        full_anchor_eta = estimate_direct_bus_eta_minutes(
+            stations,
+            current_station_seq=current_station_seq,
+            target_station_seq=anchor_seq,
+            average_speed_kmh=average_speed_kmh,
+        )
+        partial_eta = estimate_direct_bus_eta_minutes(
+            stations,
+            current_station_seq=current_station_seq,
+            target_station_seq=target_station_seq,
+            average_speed_kmh=average_speed_kmh,
+        )
+        if full_anchor_eta and partial_eta is not None:
+            scaled_eta = anchor_eta * (partial_eta / full_anchor_eta)
+            return max(0, round(scaled_eta))
+
+    return estimate_direct_bus_eta_minutes(
+        stations,
+        current_station_seq=current_station_seq,
+        target_station_seq=target_station_seq,
+        average_speed_kmh=average_speed_kmh,
+    )
 
 
 def derive_bus_current_station_seq(stations: list[dict[str, Any]], bus: dict[str, Any]) -> int | None:

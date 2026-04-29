@@ -1,5 +1,6 @@
 from app.gbis_client import (
     GbisClient,
+    build_timeline_eta_by_seq,
     load_service_key,
     normalize_arrival_item,
     normalize_route_list,
@@ -324,6 +325,39 @@ def test_get_route_live_snapshot_prefers_direct_bus_location_api_when_available(
     assert snapshot['recommendations'][0]['station_id'] == '3'
     assert snapshot['recommendations'][0]['arrival']['flag'] == 'ESTIMATE'
     assert snapshot['timeline_eta_by_seq'] == {'2': 0, '3': 28}
+
+
+def test_build_timeline_eta_by_seq_prefers_nearest_arrival_eta_for_each_station():
+    stations = [
+        {'station_id': '1', 'station_name': 'A', 'station_seq': 1},
+        {'station_id': '2', 'station_name': 'B', 'station_seq': 2},
+        {'station_id': '3', 'station_name': 'C', 'station_seq': 3},
+        {'station_id': '4', 'station_name': 'D', 'station_seq': 4},
+    ]
+    live_buses = [
+        {
+            'vehicle_id': 'bus-1',
+            'plate_no': '경기70아1111',
+            'station_seq': 4,
+            'location_no': 1,
+            'predict_time_min': 2,
+            'current_station_name': '',
+            'eta_source': 'arrival',
+        },
+        {
+            'vehicle_id': 'bus-2',
+            'plate_no': '경기70아2222',
+            'station_seq': 4,
+            'location_no': 3,
+            'predict_time_min': 7,
+            'current_station_name': '',
+            'eta_source': 'arrival',
+        },
+    ]
+
+    timeline = build_timeline_eta_by_seq(stations, live_buses, average_speed_kmh=60.0)
+
+    assert timeline['4'] == 2
 
 
 def test_get_route_live_snapshot_enriches_direct_bus_locations_with_arrival_eta():

@@ -2,7 +2,7 @@
   "version": 2,
   "rewrites": [
     { "source": "/", "destination": "/api/index" },
-    { "source": "/api/:path*", "destination": "/api/index" },
+    { "source": "/api/:path*", "destination": "https://bus-realtime-webapp.onrender.com/api/:path*" },
     { "source": "/:path*", "destination": "/api/index" }
   ]
 }
