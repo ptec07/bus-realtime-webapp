@@ -517,6 +517,7 @@ def estimate_timeline_eta_for_bus(
             if tail_eta is None:
                 return anchor_eta
             return anchor_eta + tail_eta
+
         full_anchor_eta = estimate_direct_bus_eta_minutes(
             stations,
             current_station_seq=current_station_seq,

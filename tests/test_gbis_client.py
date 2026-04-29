@@ -814,6 +814,40 @@ def test_normalize_arrival_item_returns_none_when_api_has_no_result():
     assert normalize_arrival_item(payload) is None
 
 
+def test_timeline_eta_uses_nearest_arrival_bus_for_each_station():
+    stations = [
+        {"station_id": "1", "station_name": "A", "station_seq": 1, "x": 127.0, "y": 37.000},
+        {"station_id": "2", "station_name": "B", "station_seq": 2, "x": 127.0, "y": 37.009},
+        {"station_id": "3", "station_name": "C", "station_seq": 3, "x": 127.0, "y": 37.018},
+        {"station_id": "4", "station_name": "D", "station_seq": 4, "x": 127.0, "y": 37.027},
+    ]
+    live_buses = [
+        {
+            "vehicle_id": "far-bus",
+            "plate_no": "경기70아1111",
+            "station_seq": 4,
+            "location_no": 3,
+            "predict_time_min": 9,
+            "current_station_name": "A",
+            "eta_source": "arrival",
+        },
+        {
+            "vehicle_id": "near-bus",
+            "plate_no": "경기70아2222",
+            "station_seq": 3,
+            "location_no": 1,
+            "predict_time_min": 2,
+            "current_station_name": "B",
+            "eta_source": "arrival",
+        },
+    ]
+
+    timeline = build_timeline_eta_by_seq(stations, live_buses, average_speed_kmh=60.0)
+
+    assert timeline["3"] == 2
+    assert timeline["4"] == 3
+
+
 def test_load_service_key_prefers_non_public_gbis_env(monkeypatch, tmp_path):
     monkeypatch.setenv("GBIS_SERVICE_KEY", "gbis-key")
     monkeypatch.delenv("PUBLIC_DATA_SERVICE_KEY", raising=False)
