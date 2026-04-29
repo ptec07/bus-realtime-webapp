@@ -1,0 +1,184 @@
+name: GitHub-first deploy pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  deployments: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '20'
+  APP_DIR: .
+
+jobs:
+  ci:
+    name: Test and build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Detect Node app
+        id: nodeapp
+        shell: bash
+        run: |
+          if [ -f "$APP_DIR/package-lock.json" ] || [ -f "$APP_DIR/package.json" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Node.js
+        if: steps.nodeapp.outputs.present == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install frontend dependencies
+        if: steps.nodeapp.outputs.present == 'true'
+        working-directory: ${{ env.APP_DIR }}
+        shell: bash
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
+
+      - name: Run frontend tests when available
+        if: steps.nodeapp.outputs.present == 'true'
+        working-directory: ${{ env.APP_DIR }}
+        shell: bash
+        run: |
+          if npm pkg get scripts.test | grep -vq 'undefined'; then
+            npm test -- --run
+          else
+            echo "No npm test script; skipping."
+          fi
+
+      - name: Run frontend lint when available
+        if: steps.nodeapp.outputs.present == 'true'
+        working-directory: ${{ env.APP_DIR }}
+        shell: bash
+        run: |
+          if npm pkg get scripts.lint | grep -vq 'undefined'; then
+            npm run lint
+          else
+            echo "No npm lint script; skipping."
+          fi
+
+      - name: Build frontend when available
+        if: steps.nodeapp.outputs.present == 'true'
+        working-directory: ${{ env.APP_DIR }}
+        shell: bash
+        run: |
+          if npm pkg get scripts.build | grep -vq 'undefined'; then
+            npm run build
+          else
+            echo "No npm build script; skipping."
+          fi
+
+      - name: Setup Python for backend checks
+        if: hashFiles('backend/pyproject.toml', 'backend/requirements.txt', 'pyproject.toml', 'requirements.txt') != ''
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run backend tests when available
+        if: hashFiles('backend/pyproject.toml', 'backend/requirements.txt', 'pyproject.toml', 'requirements.txt') != ''
+        shell: bash
+        run: |
+          set -e
+          if [ -d backend ]; then cd backend; fi
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          if [ -f pyproject.toml ]; then pip install -e '.[test]' || pip install -e .; fi
+          if [ -d tests ]; then python -m pytest; else echo "No backend tests; skipping."; fi
+
+  deploy-vercel:
+    name: Deploy frontend to Vercel
+    needs: ci
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Skip when Vercel secrets are not configured
+        if: env.VERCEL_TOKEN == '' || env.VERCEL_ORG_ID == '' || env.VERCEL_PROJECT_ID == ''
+        run: |
+          echo "Set VERCEL_TOKEN, VERCEL_ORG_ID, and VERCEL_PROJECT_ID repository secrets to enable Vercel deployment."
+
+      - name: Setup Node.js for Vercel CLI
+        if: env.VERCEL_TOKEN != '' && env.VERCEL_ORG_ID != '' && env.VERCEL_PROJECT_ID != ''
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Deploy with Vercel CLI
+        if: env.VERCEL_TOKEN != '' && env.VERCEL_ORG_ID != '' && env.VERCEL_PROJECT_ID != ''
+        working-directory: ${{ env.APP_DIR }}
+        shell: bash
+        run: |
+          npm install --global vercel@latest
+          vercel pull --yes --environment=production --token "$VERCEL_TOKEN"
+          vercel build --prod --token "$VERCEL_TOKEN"
+          vercel deploy --prebuilt --prod --token "$VERCEL_TOKEN"
+
+  trigger-render:
+    name: Trigger Render deploy
+    needs: ci
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    env:
+      RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+      RENDER_DEPLOY_HOOK_URLS: ${{ secrets.RENDER_DEPLOY_HOOK_URLS }}
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+      RENDER_SERVICE_IDS: ${{ secrets.RENDER_SERVICE_IDS }}
+    steps:
+      - name: Skip when Render deployment is not configured
+        if: env.RENDER_DEPLOY_HOOK_URL == '' && env.RENDER_DEPLOY_HOOK_URLS == '' && env.RENDER_API_KEY == ''
+        run: |
+          echo "Set Render deploy hook secrets or RENDER_API_KEY plus RENDER_SERVICE_ID(S) to enable Render deployment."
+
+      - name: Trigger single Render deploy hook
+        if: env.RENDER_DEPLOY_HOOK_URL != ''
+        run: curl -fsS -X POST "$RENDER_DEPLOY_HOOK_URL"
+
+      - name: Trigger multiple Render deploy hooks
+        if: env.RENDER_DEPLOY_HOOK_URLS != ''
+        shell: bash
+        run: |
+          while IFS= read -r hook; do
+            [ -z "$hook" ] && continue
+            curl -fsS -X POST "$hook"
+          done <<< "$RENDER_DEPLOY_HOOK_URLS"
+
+      - name: Trigger Render API deploys
+        if: env.RENDER_API_KEY != '' && (env.RENDER_SERVICE_ID != '' || env.RENDER_SERVICE_IDS != '')
+        shell: bash
+        run: |
+          set -euo pipefail
+          ids="$RENDER_SERVICE_ID"
+          if [ -n "$RENDER_SERVICE_IDS" ]; then
+            ids="$ids
+$RENDER_SERVICE_IDS"
+          fi
+          while IFS= read -r service_id; do
+            [ -z "$service_id" ] && continue
+            curl -fsS -X POST               -H "Authorization: Bearer $RENDER_API_KEY"               -H "Accept: application/json"               "https://api.render.com/v1/services/$service_id/deploys"
+          done <<< "$ids"
