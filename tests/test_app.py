@@ -194,6 +194,16 @@ def test_index_page_contains_empty_live_data_completion_message():
     assert "실시간 위치 확인이 끝났지만 표시할 차량이 아직 없어." in response.text
 
 
+def test_index_page_labels_zero_eta_current_bus_as_position_not_arrival():
+    response = make_client().get("/")
+
+    assert response.status_code == 200
+    assert "function firstStationSeq()" in response.text
+    assert "출발 정류장에 대기 중" in response.text
+    assert "현재 버스 위치" in response.text
+    assert "timelineState?.currentBusStationSeqs?.has(seq) && timelineState?.estimatedMinutesBySeq?.get(seq) === 0" in response.text
+
+
 def test_routes_api_returns_route_matches():
     response = make_client().get("/api/routes", params={"query": "1001"})
 

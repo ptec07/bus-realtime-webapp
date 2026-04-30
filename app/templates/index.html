@@ -332,13 +332,23 @@
     return { currentBusStationSeqs, estimatedMinutesBySeq };
   }
 
+  function firstStationSeq() {
+    const sequences = currentStations
+      .map((station) => Number(station.station_seq))
+      .filter((seq) => Number.isFinite(seq) && seq > 0);
+    return sequences.length ? Math.min(...sequences) : null;
+  }
+
   function stationArrivalLabel(station, timelineState) {
     const seq = Number(station.station_seq);
-    if (timelineState?.currentBusStationSeqs?.has(seq)) {
-      return '현재 버스 위치';
+    if (timelineState?.currentBusStationSeqs?.has(seq) && timelineState?.estimatedMinutesBySeq?.get(seq) === 0) {
+      return seq === firstStationSeq() ? '출발 정류장에 대기 중' : '현재 버스 위치';
     }
     if (timelineState?.estimatedMinutesBySeq?.has(seq)) {
       return formatMinuteLabel(timelineState.estimatedMinutesBySeq.get(seq));
+    }
+    if (timelineState?.currentBusStationSeqs?.has(seq)) {
+      return '현재 버스 위치';
     }
     return liveDataLoadingComplete()
       ? '실시간 위치 확인이 끝났지만 표시할 차량이 아직 없어.'
@@ -347,6 +357,7 @@
 
   function stationStatusClass(station, timelineState) {
     const seq = Number(station.station_seq);
+    if (timelineState?.estimatedMinutesBySeq?.get(seq) === 0) return 'current';
     if (timelineState?.currentBusStationSeqs?.has(seq)) return 'current';
     return '';
   }
