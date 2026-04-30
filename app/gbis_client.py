@@ -471,26 +471,35 @@ def build_timeline_eta_by_seq(
     average_speed_kmh: float = 30.0,
 ) -> dict[str, int]:
     timeline: dict[str, int] = {}
+    buses_with_position: list[tuple[int, dict[str, Any]]] = []
     for bus in live_buses:
         current_seq = derive_bus_current_station_seq(stations, bus)
         if current_seq is None:
             continue
-        for station in stations:
-            target_seq = int(station.get("station_seq") or 0)
-            if target_seq < current_seq:
+        buses_with_position.append((current_seq, bus))
+
+    for station in stations:
+        target_seq = int(station.get("station_seq") or 0)
+        upstream = [(current_seq, bus) for current_seq, bus in buses_with_position if current_seq <= target_seq]
+        if not upstream:
+            continue
+        nearest_seq = max(current_seq for current_seq, _bus in upstream)
+        nearest_buses = [bus for current_seq, bus in upstream if current_seq == nearest_seq]
+        etas: list[int] = []
+        for bus in nearest_buses:
+            if bus.get("predict_time_min") in (None, ""):
                 continue
             eta = estimate_timeline_eta_for_bus(
                 stations,
                 bus,
-                current_station_seq=current_seq,
+                current_station_seq=nearest_seq,
                 target_station_seq=target_seq,
                 average_speed_kmh=average_speed_kmh,
             )
-            if eta is None:
-                continue
-            key = str(target_seq)
-            if key not in timeline or eta < timeline[key]:
-                timeline[key] = eta
+            if eta is not None:
+                etas.append(eta)
+        if etas:
+            timeline[str(target_seq)] = min(etas)
     return timeline
 
 

@@ -204,6 +204,17 @@ def test_index_page_labels_zero_eta_current_bus_as_position_not_arrival():
     assert "timelineState?.currentBusStationSeqs?.has(seq) && timelineState?.estimatedMinutesBySeq?.get(seq) === 0" in response.text
 
 
+def test_index_page_hides_station_eta_when_live_bus_eta_is_still_calculating():
+    response = make_client().get("/")
+
+    assert response.status_code == 200
+    assert "function hasCalculatingBusAtSeq(seq)" in response.text
+    assert "if (hasCalculatingBusAtSeq(seq)) {\n      return '현재 버스 위치';\n    }" in response.text
+    assert "if (currentLiveBuses.length) {\n      return '';\n    }" in response.text
+    assert "const arrivalLabel = stationArrivalLabel(station, timelineState);" in response.text
+    assert "arrivalLabel ? `<div class=\"timeline-arrival\">${escapeHtml(arrivalLabel)}</div>` : ''" in response.text
+
+
 def test_routes_api_returns_route_matches():
     response = make_client().get("/api/routes", params={"query": "1001"})
 

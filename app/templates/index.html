@@ -339,8 +339,15 @@
     return sequences.length ? Math.min(...sequences) : null;
   }
 
+  function hasCalculatingBusAtSeq(seq) {
+    return currentLiveBuses.some((bus) => Number(bus.station_seq) === seq && (bus.predict_time_min === null || bus.predict_time_min === undefined));
+  }
+
   function stationArrivalLabel(station, timelineState) {
     const seq = Number(station.station_seq);
+    if (hasCalculatingBusAtSeq(seq)) {
+      return '현재 버스 위치';
+    }
     if (timelineState?.currentBusStationSeqs?.has(seq) && timelineState?.estimatedMinutesBySeq?.get(seq) === 0) {
       return seq === firstStationSeq() ? '출발 정류장에 대기 중' : '현재 버스 위치';
     }
@@ -349,6 +356,9 @@
     }
     if (timelineState?.currentBusStationSeqs?.has(seq)) {
       return '현재 버스 위치';
+    }
+    if (currentLiveBuses.length) {
+      return '';
     }
     return liveDataLoadingComplete()
       ? '실시간 위치 확인이 끝났지만 표시할 차량이 아직 없어.'
@@ -396,6 +406,7 @@
     const timelineState = computeTimelineState();
     routeTimeline.innerHTML = filteredStations.map((station, index) => {
       const stationClass = stationStatusClass(station, timelineState);
+      const arrivalLabel = stationArrivalLabel(station, timelineState);
       const activeClass = currentSelectedStationId === String(station.station_id) ? ' active' : '';
       const lineHtml = index === filteredStations.length - 1 ? '' : '<span class="timeline-line" aria-hidden="true"></span>';
       return `
@@ -406,7 +417,7 @@
             <div class="timeline-order">${station.station_seq}번째 정류장</div>
             <div class="timeline-station">${escapeHtml(station.station_name)}</div>
             <div class="timeline-meta">${stationClass === 'current' ? '차량이 가까운 정류장에 있어.' : '실시간 위치 기준 계산'}</div>
-            <div class="timeline-arrival">${escapeHtml(stationArrivalLabel(station, timelineState))}</div>
+            ${arrivalLabel ? `<div class="timeline-arrival">${escapeHtml(arrivalLabel)}</div>` : ''}
           </div>
           ${renderBusMarker(station)}
         </li>

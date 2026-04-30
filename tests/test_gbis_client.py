@@ -327,6 +327,62 @@ def test_get_route_live_snapshot_prefers_direct_bus_location_api_when_available(
     assert snapshot['timeline_eta_by_seq'] == {'2': 0, '3': 28}
 
 
+def test_build_timeline_eta_by_seq_ignores_buses_without_arrival_eta():
+    stations = [
+        {'station_id': '1', 'station_name': 'A', 'station_seq': 1, 'x': 127.0, 'y': 37.0},
+        {'station_id': '2', 'station_name': 'B', 'station_seq': 2, 'x': 127.0, 'y': 37.009},
+        {'station_id': '3', 'station_name': 'C', 'station_seq': 3, 'x': 127.0, 'y': 37.018},
+    ]
+    live_buses = [
+        {
+            'vehicle_id': 'bus-unknown',
+            'plate_no': '경기74아8200',
+            'station_seq': 2,
+            'predict_time_min': None,
+            'location_no': 0,
+            'current_station_name': 'B',
+        }
+    ]
+
+    assert build_timeline_eta_by_seq(stations, live_buses, average_speed_kmh=30.0) == {}
+
+
+def test_build_timeline_eta_by_seq_stops_before_nearer_bus_with_unknown_eta():
+    stations = [
+        {'station_id': '1', 'station_name': 'A', 'station_seq': 1, 'x': 127.0, 'y': 37.0},
+        {'station_id': '2', 'station_name': 'B', 'station_seq': 2, 'x': 127.0, 'y': 37.009},
+        {'station_id': '3', 'station_name': 'C', 'station_seq': 3, 'x': 127.0, 'y': 37.018},
+        {'station_id': '4', 'station_name': 'D', 'station_seq': 4, 'x': 127.0, 'y': 37.027},
+        {'station_id': '5', 'station_name': 'E', 'station_seq': 5, 'x': 127.0, 'y': 37.036},
+    ]
+    live_buses = [
+        {
+            'vehicle_id': 'bus-timed',
+            'plate_no': '경기74아1111',
+            'station_seq': 2,
+            'predict_time_min': 1,
+            'location_no': 1,
+            'eta_source': 'estimated',
+            'current_station_name': 'B',
+        },
+        {
+            'vehicle_id': 'bus-unknown',
+            'plate_no': '경기74아8200',
+            'station_seq': 4,
+            'predict_time_min': None,
+            'location_no': 0,
+            'current_station_name': 'D',
+        },
+    ]
+
+    timeline = build_timeline_eta_by_seq(stations, live_buses, average_speed_kmh=30.0)
+
+    assert '2' in timeline
+    assert '3' in timeline
+    assert '4' not in timeline
+    assert '5' not in timeline
+
+
 def test_build_timeline_eta_by_seq_prefers_nearest_arrival_eta_for_each_station():
     stations = [
         {'station_id': '1', 'station_name': 'A', 'station_seq': 1},
