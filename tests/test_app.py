@@ -191,7 +191,6 @@ def test_index_page_contains_empty_live_data_completion_message():
 
     assert response.status_code == 200
     assert "현재 실시간 차량 정보를 찾지 못했어." in response.text
-    assert "실시간 위치 확인이 끝났지만 표시할 차량이 아직 없어." in response.text
 
 
 def test_index_page_contains_route_search_failure_and_empty_states():
@@ -206,23 +205,24 @@ def test_index_page_contains_route_search_failure_and_empty_states():
     assert "if (!res.ok)" in response.text
 
 
-def test_index_page_labels_zero_eta_current_bus_as_position_not_arrival():
+def test_index_page_only_labels_actual_bus_positions_not_every_station_eta():
     response = make_client().get("/")
 
     assert response.status_code == 200
-    assert "function firstStationSeq()" in response.text
-    assert "출발 정류장에 대기 중" in response.text
     assert "현재 버스 위치" in response.text
-    assert "timelineState?.currentBusStationSeqs?.has(seq) && timelineState?.estimatedMinutesBySeq?.get(seq) === 0" in response.text
+    assert "function stationArrivalLabel(station, timelineState)" in response.text
+    assert "if (timelineState?.currentBusStationSeqs?.has(seq)) {\n      return '현재 버스 위치';\n    }" in response.text
+    assert "if (timelineState?.estimatedMinutesBySeq?.has(seq))" not in response.text
+    assert "formatMinuteLabel(timelineState.estimatedMinutesBySeq.get(seq))" not in response.text
+    assert "출발 정류장에 대기 중" not in response.text
 
 
-def test_index_page_hides_station_eta_when_live_bus_eta_is_still_calculating():
+def test_index_page_renders_arrival_label_only_for_live_bus_station():
     response = make_client().get("/")
 
     assert response.status_code == 200
-    assert "function hasCalculatingBusAtSeq(seq)" in response.text
-    assert "if (hasCalculatingBusAtSeq(seq)) {\n      return '현재 버스 위치';\n    }" in response.text
-    assert "if (currentLiveBuses.length) {\n      return '';\n    }" in response.text
+    assert "return '';" in response.text
+    assert "실시간 차량 위치를 찾는 중" not in response.text
     assert "const arrivalLabel = stationArrivalLabel(station, timelineState);" in response.text
     assert "arrivalLabel ? `<div class=\"timeline-arrival\">${escapeHtml(arrivalLabel)}</div>` : ''" in response.text
 
