@@ -236,6 +236,19 @@ def test_index_page_bus_marker_labels_eta_as_next_station_time():
     assert "formatMinuteLabel(bus.predict_time_min)" in response.text
 
 
+def test_index_page_uses_tanstack_query_for_client_fetches():
+    response = make_client().get("/")
+
+    assert response.status_code == 200
+    assert "@tanstack/query-core" in response.text
+    assert "new QueryClient" in response.text
+    assert "queryClient.fetchQuery" in response.text
+    assert "queryKey: ['routes', query]" in response.text
+    assert "queryKey: ['route-stations', route.route_id]" in response.text
+    assert "queryKey: ['live-snapshot', routeId]" in response.text
+    assert "queryKey: ['arrival', currentRoute.route_id, stationId, staOrder]" in response.text
+
+
 def test_routes_api_returns_route_matches():
     response = make_client().get("/api/routes", params={"query": "1001"})
 

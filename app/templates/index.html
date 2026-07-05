@@ -225,7 +225,27 @@
     <div id="arrival-result" class="arrival" style="margin-top:12px;"></div>
   </section>
 </main>
-<script>
+<script type="module">
+  import { QueryClient } from 'https://esm.sh/@tanstack/query-core@5';
+
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: 1,
+        staleTime: 0,
+        gcTime: 5 * 60 * 1000,
+      },
+    },
+  });
+
+  async function fetchJson(url) {
+    const res = await fetch(url);
+    if (!res.ok) {
+      throw new Error(`${url} ${res.status}`);
+    }
+    return res.json();
+  }
+
   const routeQuery = document.getElementById('route-query');
   const routeQueryClear = document.getElementById('route-query-clear');
   const routeBtn = document.getElementById('route-search');
@@ -419,11 +439,11 @@
 
     let data = [];
     try {
-      const res = await fetch(`/api/routes?query=${encodeURIComponent(query)}`);
-      if (!res.ok) {
-        throw new Error(`route-search ${res.status}`);
-      }
-      data = await res.json();
+      data = await queryClient.fetchQuery({
+        queryKey: ['routes', query],
+        queryFn: () => fetchJson(`/api/routes?query=${encodeURIComponent(query)}`),
+        staleTime: 30 * 1000,
+      });
       if (!Array.isArray(data)) {
         throw new Error('route-search payload is not an array');
       }
@@ -490,11 +510,11 @@
     currentLiveFetchInFlight = true;
 
     try {
-      const res = await fetch(`/api/routes/${routeId}/live-snapshot`);
-      if (!res.ok) {
-        throw new Error(`live-snapshot ${res.status}`);
-      }
-      const snapshot = await res.json();
+      const snapshot = await queryClient.fetchQuery({
+        queryKey: ['live-snapshot', routeId],
+        queryFn: () => fetchJson(`/api/routes/${routeId}/live-snapshot`),
+        staleTime: 0,
+      });
       if (!currentRoute || currentRoute.route_id !== routeId || requestToken !== currentLiveRequestToken) {
         return;
       }
@@ -537,8 +557,11 @@
     currentLiveBusesLoaded = false;
     currentRecommendationsLoaded = false;
     selectedRoute.textContent = `${route.route_name} | ${route.start_station} → ${route.end_station}`;
-    const res = await fetch(`/api/routes/${route.route_id}/stations`);
-    currentStations = await res.json();
+    currentStations = await queryClient.fetchQuery({
+      queryKey: ['route-stations', route.route_id],
+      queryFn: () => fetchJson(`/api/routes/${route.route_id}/stations`),
+      staleTime: 60 * 1000,
+    });
     updateTimelineSummary();
     renderTimeline();
 
@@ -549,8 +572,11 @@
     if (!currentRoute) return;
     currentSelectedStationId = String(stationId);
     const params = new URLSearchParams({ route_id: currentRoute.route_id, station_id: stationId, sta_order: staOrder });
-    const res = await fetch(`/api/arrival?${params.toString()}`);
-    const data = await res.json();
+    const data = await queryClient.fetchQuery({
+      queryKey: ['arrival', currentRoute.route_id, stationId, staOrder],
+      queryFn: () => fetchJson(`/api/arrival?${params.toString()}`),
+      staleTime: 5 * 1000,
+    });
     if (!data) {
       arrivalResult.textContent = '';
       renderTimeline();
