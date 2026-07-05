@@ -357,7 +357,7 @@
         ${buses.map((bus) => `
           <div class="timeline-bus-pill">
             <span class="bus-icon">🚌</span>
-            <span>${escapeHtml(bus.plate_no || '운행중')} · ${escapeHtml(formatMinuteLabel(bus.predict_time_min))}</span>
+            <span>${escapeHtml(bus.plate_no || '운행중')} · 다음 정류장${bus.next_station_name ? `(${escapeHtml(bus.next_station_name)})` : ''} ${escapeHtml(formatMinuteLabel(bus.predict_time_min))}</span>
           </div>
         `).join('')}
       </div>

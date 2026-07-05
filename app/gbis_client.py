@@ -83,23 +83,12 @@ class GbisClient:
             live_buses = [
                 enrich_direct_bus_location(location, station_lookup) for location in direct_locations
             ]
-            for bus in live_buses[: max(recommendation_limit, 3)]:
-                try:
-                    arrival = self.get_arrival(route_id, bus["station_id"], bus["station_seq"])
-                except Exception:
-                    arrival = None
-                enrich_bus_with_arrival(bus, arrival)
-                if bus.get("predict_time_min") is None:
-                    fallback_eta = estimate_direct_bus_eta_minutes(
-                        stations,
-                        current_station_seq=int(bus.get("station_seq") or 0),
-                        target_station_seq=min(len(stations), int(bus.get("station_seq") or 0) + 1),
-                        average_speed_kmh=getattr(self, "average_speed_kmh", 30.0),
-                    )
-                    if fallback_eta is not None:
-                        bus["predict_time_min"] = fallback_eta
-                        bus["location_no"] = 1
-                        bus["eta_source"] = "estimated"
+            for bus in live_buses:
+                enrich_bus_with_next_station_eta(
+                    bus,
+                    stations_by_seq,
+                    average_speed_kmh=getattr(self, "average_speed_kmh", 30.0),
+                )
             recommendations = [
                 build_direct_location_recommendation(
                     bus,
@@ -331,6 +320,38 @@ def enrich_bus_with_arrival(bus: dict[str, Any], arrival: dict[str, Any] | None)
     if primary.get("remain_seat_count") is not None:
         bus["remain_seat_count"] = primary.get("remain_seat_count")
     bus["eta_source"] = "arrival"
+
+
+def enrich_bus_with_next_station_eta(
+    bus: dict[str, Any],
+    stations_by_seq: dict[int, dict[str, Any]],
+    average_speed_kmh: float = 30.0,
+) -> None:
+    current_seq = int(bus.get("station_seq") or 0)
+    if current_seq <= 0 or not stations_by_seq:
+        return
+
+    downstream_seqs = sorted(seq for seq in stations_by_seq if seq > current_seq)
+    if not downstream_seqs:
+        return
+
+    next_seq = downstream_seqs[0]
+    next_station = stations_by_seq[next_seq]
+    eta_minutes = estimate_direct_bus_eta_minutes(
+        list(stations_by_seq.values()),
+        current_station_seq=current_seq,
+        target_station_seq=next_seq,
+        average_speed_kmh=average_speed_kmh,
+    )
+    if eta_minutes is None:
+        return
+
+    bus["predict_time_min"] = eta_minutes
+    bus["location_no"] = max(1, next_seq - current_seq)
+    bus["eta_source"] = "next_station_estimated"
+    bus["next_station_id"] = str(next_station.get("station_id", ""))
+    bus["next_station_seq"] = next_seq
+    bus["next_station_name"] = str(next_station.get("station_name", ""))
 
 
 def build_direct_location_recommendation(

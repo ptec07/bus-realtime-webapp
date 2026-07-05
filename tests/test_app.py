@@ -227,6 +227,15 @@ def test_index_page_renders_arrival_label_only_for_live_bus_station():
     assert "arrivalLabel ? `<div class=\"timeline-arrival\">${escapeHtml(arrivalLabel)}</div>` : ''" in response.text
 
 
+def test_index_page_bus_marker_labels_eta_as_next_station_time():
+    response = make_client().get("/")
+
+    assert response.status_code == 200
+    assert "다음 정류장" in response.text
+    assert "bus.next_station_name" in response.text
+    assert "formatMinuteLabel(bus.predict_time_min)" in response.text
+
+
 def test_routes_api_returns_route_matches():
     response = make_client().get("/api/routes", params={"query": "1001"})
 

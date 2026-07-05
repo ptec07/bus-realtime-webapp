@@ -416,18 +416,21 @@ def test_build_timeline_eta_by_seq_prefers_nearest_arrival_eta_for_each_station(
     assert timeline['4'] == 2
 
 
-def test_get_route_live_snapshot_enriches_direct_bus_locations_with_arrival_eta():
+def test_get_route_live_snapshot_labels_direct_bus_eta_to_next_station_not_current_station_arrival():
     class FakeClient(GbisClient):
         def __init__(self):
             self.scan_chunk_size = 3
             self.max_station_scans = 12
+            self.average_speed_kmh = 30
             self._route_scan_offsets = {}
             self._route_last_snapshot = {}
+            self.arrival_calls = []
 
         def get_route_stations(self, route_id: str):
             return [
-                {'station_id': '1', 'station_name': 'A', 'station_seq': 1, 'x': 127.1, 'y': 37.1},
-                {'station_id': '2', 'station_name': 'B', 'station_seq': 2, 'x': 127.2, 'y': 37.2},
+                {'station_id': '1', 'station_name': 'A', 'station_seq': 1, 'x': 127.0, 'y': 37.0},
+                {'station_id': '2', 'station_name': 'B', 'station_seq': 2, 'x': 127.0, 'y': 37.009},
+                {'station_id': '3', 'station_name': 'C', 'station_seq': 3, 'x': 127.0, 'y': 37.018},
             ]
 
         def get_bus_location_list(self, route_id: str):
@@ -444,12 +447,13 @@ def test_get_route_live_snapshot_enriches_direct_bus_locations_with_arrival_eta(
             ]
 
         def get_arrival(self, route_id: str, station_id: str, sta_order: int):
+            self.arrival_calls.append((station_id, sta_order))
             return {
                 'route_id': route_id,
                 'station_id': station_id,
                 'sta_order': sta_order,
                 'flag': 'RUN',
-                'predict_time_min': 4,
+                'predict_time_min': 9,
                 'location_no': 2,
                 'plate_no': '경기70아1234',
                 'current_station_name': 'B',
@@ -459,7 +463,7 @@ def test_get_route_live_snapshot_enriches_direct_bus_locations_with_arrival_eta(
                     {
                         'vehicle_id': 'bus-1',
                         'plate_no': '경기70아1234',
-                        'predict_time_min': 4,
+                        'predict_time_min': 9,
                         'location_no': 2,
                         'current_station_name': 'B',
                         'remain_seat_count': 9,
@@ -471,10 +475,12 @@ def test_get_route_live_snapshot_enriches_direct_bus_locations_with_arrival_eta(
 
     snapshot = client.get_route_live_snapshot('222000107', recommendation_limit=2)
 
-    assert snapshot['buses'][0]['predict_time_min'] == 4
-    assert snapshot['buses'][0]['location_no'] == 2
-    assert snapshot['recommendations'][0]['arrival']['predict_time_min'] == 4
-    assert snapshot['recommendations'][0]['arrival']['location_no'] == 2
+    assert client.arrival_calls == []
+    assert snapshot['buses'][0]['predict_time_min'] == 2
+    assert snapshot['buses'][0]['location_no'] == 1
+    assert snapshot['buses'][0]['next_station_seq'] == 3
+    assert snapshot['buses'][0]['next_station_name'] == 'C'
+    assert snapshot['buses'][0]['eta_source'] == 'next_station_estimated'
 
 
 def test_get_route_live_snapshot_estimates_eta_from_station_distances_when_arrival_api_is_empty():
