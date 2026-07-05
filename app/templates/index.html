@@ -197,6 +197,7 @@
         <button id="route-query-clear" class="route-query-clear" type="button" aria-label="노선번호 입력 지우기">×</button>
       </div>
       <button id="route-search" type="button" style="margin-top:8px;">노선 검색</button>
+      <div id="route-search-status" class="muted" style="margin-top:8px;"></div>
       <ul id="route-results"></ul>
 
       <div class="selected-route muted" id="selected-route">노선을 먼저 선택해줘.</div>
@@ -228,6 +229,7 @@
   const routeQuery = document.getElementById('route-query');
   const routeQueryClear = document.getElementById('route-query-clear');
   const routeBtn = document.getElementById('route-search');
+  const routeSearchStatus = document.getElementById('route-search-status');
   const routeResults = document.getElementById('route-results');
   const stationFilter = document.getElementById('station-filter');
   const selectedRoute = document.getElementById('selected-route');
@@ -432,9 +434,36 @@
 
   async function searchRoutes() {
     const query = routeQuery.value.trim();
-    if (!query) return;
-    const res = await fetch(`/api/routes?query=${encodeURIComponent(query)}`);
-    const data = await res.json();
+    if (!query) {
+      routeResults.innerHTML = '';
+      routeSearchStatus.textContent = '노선번호를 입력해줘.';
+      return;
+    }
+
+    routeSearchStatus.textContent = '노선 검색 중이야.';
+    routeResults.innerHTML = '';
+
+    let data = [];
+    try {
+      const res = await fetch(`/api/routes?query=${encodeURIComponent(query)}`);
+      if (!res.ok) {
+        throw new Error(`route-search ${res.status}`);
+      }
+      data = await res.json();
+      if (!Array.isArray(data)) {
+        throw new Error('route-search payload is not an array');
+      }
+    } catch (error) {
+      routeSearchStatus.textContent = '노선 검색에 실패했어. 잠시 후 다시 시도해줘.';
+      return;
+    }
+
+    if (!data.length) {
+      routeSearchStatus.textContent = '검색 결과가 없어. 노선번호를 다시 확인해줘.';
+      return;
+    }
+
+    routeSearchStatus.textContent = `${data.length}개 노선을 찾았어.`;
     routeResults.innerHTML = data.map((route) => `
       <li data-route-id="${route.route_id}">
         <strong>${escapeHtml(route.route_name)}</strong><br>

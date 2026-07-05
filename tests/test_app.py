@@ -194,6 +194,18 @@ def test_index_page_contains_empty_live_data_completion_message():
     assert "실시간 위치 확인이 끝났지만 표시할 차량이 아직 없어." in response.text
 
 
+def test_index_page_contains_route_search_failure_and_empty_states():
+    response = make_client().get("/")
+
+    assert response.status_code == 200
+    assert 'id="route-search-status"' in response.text
+    assert "노선 검색 중이야." in response.text
+    assert "노선 검색에 실패했어. 잠시 후 다시 시도해줘." in response.text
+    assert "검색 결과가 없어. 노선번호를 다시 확인해줘." in response.text
+    assert "Array.isArray(data)" in response.text
+    assert "if (!res.ok)" in response.text
+
+
 def test_index_page_labels_zero_eta_current_bus_as_position_not_arrival():
     response = make_client().get("/")
 
@@ -226,6 +238,20 @@ def test_routes_api_requires_query():
     response = make_client().get("/api/routes")
 
     assert response.status_code == 400
+
+
+def test_routes_api_returns_502_instead_of_raw_500_when_client_errors():
+    class ErrorStubClient(StubClient):
+        def search_routes(self, query: str):
+            raise RuntimeError("upstream route search failed")
+
+    response = TestClient(create_app(client=ErrorStubClient())).get(
+        "/api/routes",
+        params={"query": "1001"},
+    )
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == "route search failed"
 
 
 def test_route_stations_api_returns_station_list():

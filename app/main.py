@@ -31,7 +31,10 @@ def create_app(client: GbisClient | None = None) -> FastAPI:
     def search_routes(query: str | None = Query(default=None)):
         if not query:
             raise HTTPException(status_code=400, detail="query is required")
-        return get_client().search_routes(query)
+        try:
+            return get_client().search_routes(query)
+        except Exception:
+            raise HTTPException(status_code=502, detail="route search failed")
 
     @app.get("/api/routes/{route_id}/stations")
     def route_stations(route_id: str):
