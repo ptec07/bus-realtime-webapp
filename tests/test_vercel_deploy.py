@@ -39,3 +39,14 @@ def test_pyproject_contains_minimal_project_table_for_vercel_python_build():
     text = pyproject.read_text()
     assert "[project]" in text
     assert "requires-python" in text
+
+
+def test_vercel_deploy_job_installs_uv_before_running_vercel_build():
+    workflow = ROOT / ".github" / "workflows" / "github-first-deploy.yml"
+    text = workflow.read_text()
+
+    deploy_job = text.split("  deploy-vercel:", 1)[1].split("  trigger-render:", 1)[0]
+    setup_uv_index = deploy_job.index("astral-sh/setup-uv@")
+    vercel_build_index = deploy_job.index("vercel build --prod")
+
+    assert setup_uv_index < vercel_build_index

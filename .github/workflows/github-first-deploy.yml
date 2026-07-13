@@ -125,6 +125,9 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
+      - name: Setup uv for Vercel Python build
+        uses: astral-sh/setup-uv@v6
+
       - name: Deploy with Vercel CLI when secrets exist
         working-directory: ${{ env.APP_DIR }}
         shell: bash
