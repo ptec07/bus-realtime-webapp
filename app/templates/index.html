@@ -226,17 +226,25 @@
   </section>
 </main>
 <script type="module">
-  import { QueryClient } from 'https://esm.sh/@tanstack/query-core@5';
+  const directQueryClient = {
+    fetchQuery: ({ queryFn }) => queryFn(),
+  };
 
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: {
-        retry: 1,
-        staleTime: 0,
-        gcTime: 5 * 60 * 1000,
+  let queryClient = directQueryClient;
+  try {
+    const { QueryClient } = await import('https://esm.sh/@tanstack/query-core@5');
+    queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: 1,
+          staleTime: 0,
+          gcTime: 5 * 60 * 1000,
+        },
       },
-    },
-  });
+    });
+  } catch (error) {
+    console.warn('TanStack Query CDN unavailable; using direct fetch fallback.');
+  }
 
   async function fetchJson(url) {
     const res = await fetch(url);

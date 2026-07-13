@@ -249,6 +249,18 @@ def test_index_page_uses_tanstack_query_for_client_fetches():
     assert "queryKey: ['arrival', currentRoute.route_id, stationId, staOrder]" in response.text
 
 
+def test_index_page_falls_back_to_direct_fetch_when_query_cdn_is_unavailable():
+    response = make_client().get("/")
+
+    assert response.status_code == 200
+    assert "import { QueryClient } from 'https://esm.sh" not in response.text
+    assert "await import('https://esm.sh/@tanstack/query-core@5')" in response.text
+    assert "const directQueryClient" in response.text
+    assert "fetchQuery: ({ queryFn }) => queryFn()" in response.text
+    assert "queryClient = directQueryClient" in response.text
+    assert "TanStack Query CDN unavailable; using direct fetch fallback." in response.text
+
+
 def test_routes_api_returns_route_matches():
     response = make_client().get("/api/routes", params={"query": "1001"})
 
